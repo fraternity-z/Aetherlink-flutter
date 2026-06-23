@@ -33,6 +33,45 @@ class GeminiAdapter implements LlmGateway {
     ];
 
     final tools = request.tools;
+    // Build generation config with all supported parameters.
+    final genConfig = <String, dynamic>{
+      if (request.temperature != null) 'temperature': request.temperature,
+      if (request.maxTokens != null) 'maxOutputTokens': request.maxTokens,
+      if (request.topP != null) 'topP': request.topP,
+      if (request.topK != null) 'topK': request.topK,
+      if (request.stopSequences != null && request.stopSequences!.isNotEmpty)
+        'stopSequences': request.stopSequences,
+      if (request.responseFormat != null && request.responseFormat != 'text')
+        'responseMimeType': request.responseFormat == 'json'
+            ? 'application/json'
+            : 'text/plain',
+      if (request.includeThoughts == true)
+        'thinkingConfig': {'includeThoughts': true},
+      if (request.thinkingBudget != null)
+        'thinkingConfig': {
+          'includeThoughts': request.includeThoughts ?? true,
+          'thinkingBudget': request.thinkingBudget,
+        },
+    };
+
+    // Build tools list — combine function declarations + optional grounding.
+    final toolEntries = <Map<String, dynamic>>[];
+    if (tools != null && tools.isNotEmpty) {
+      toolEntries.add({
+        'functionDeclarations': [
+          for (final t in tools)
+            {
+              'name': t.name,
+              'description': t.description,
+              'parameters': t.inputSchema,
+            },
+        ],
+      });
+    }
+    if (request.useSearchGrounding == true) {
+      toolEntries.add({'googleSearch': <String, dynamic>{}});
+    }
+
     final body = <String, dynamic>{
       'contents': contents,
       if (request.system != null)
@@ -41,24 +80,22 @@ class GeminiAdapter implements LlmGateway {
             {'text': request.system},
           ],
         },
-      'generationConfig': <String, dynamic>{
-        if (request.temperature != null) 'temperature': request.temperature,
-        if (request.maxTokens != null) 'maxOutputTokens': request.maxTokens,
-        if (request.topP != null) 'topP': request.topP,
-      },
-      if (tools != null && tools.isNotEmpty)
-        'tools': [
-          {
-            'functionDeclarations': [
-              for (final t in tools)
-                {
-                  'name': t.name,
-                  'description': t.description,
-                  'parameters': t.inputSchema,
-                },
-            ],
-          },
+      'generationConfig': genConfig,
+      if (toolEntries.isNotEmpty) 'tools': toolEntries,
+      if (request.safetyLevel != null)
+        'safetySettings': [
+          for (final cat in const [
+            'HARM_CATEGORY_HARASSMENT',
+            'HARM_CATEGORY_HATE_SPEECH',
+            'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+            'HARM_CATEGORY_DANGEROUS_CONTENT',
+          ])
+            {
+              'category': cat,
+              'threshold': _safetyThreshold(request.safetyLevel!),
+            },
         ],
+      ...?request.customParameters,
       ...?request.extraBody,
     };
 
@@ -222,6 +259,15 @@ class GeminiAdapter implements LlmGateway {
   static String _roleValue(MessageRole role) => switch (role) {
     MessageRole.assistant => 'model',
     _ => 'user',
+  };
+
+  /// Maps a human-readable safety level to a Gemini harm block threshold.
+  static String _safetyThreshold(String level) => switch (level) {
+    'none' => 'BLOCK_NONE',
+    'low' => 'BLOCK_ONLY_HIGH',
+    'medium' => 'BLOCK_MEDIUM_AND_ABOVE',
+    'high' => 'BLOCK_LOW_AND_ABOVE',
+    _ => 'BLOCK_MEDIUM_AND_ABOVE',
   };
 
   static String _streamUrl(String? baseUrl, String modelId) {

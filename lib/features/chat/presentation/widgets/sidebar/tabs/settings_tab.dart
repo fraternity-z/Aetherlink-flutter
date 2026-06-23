@@ -11,6 +11,7 @@ import 'package:aetherlink_flutter/app/di/mcp_servers_access.dart';
 import 'package:aetherlink_flutter/app/router/app_router.dart';
 import 'package:aetherlink_flutter/features/chat/application/mcp_tools_controller.dart';
 import 'package:aetherlink_flutter/features/chat/application/sidebar_settings_controller.dart';
+import 'package:aetherlink_flutter/features/chat/presentation/widgets/sidebar/widgets/parameter_editor.dart';
 import 'package:aetherlink_flutter/features/chat/domain/entities/sidebar_settings.dart';
 import 'package:aetherlink_flutter/features/chat/presentation/widgets/sidebar/dialogs/sidebar_layout_dialog.dart';
 import 'package:aetherlink_flutter/features/chat/presentation/widgets/sidebar/sidebar_tokens.dart';
@@ -57,7 +58,10 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
 
   // ── Group children builders (shared by both modes) ─────────────────────
 
-  List<Widget> _generalChildren(SidebarSettings s, SidebarSettingsController c) => [
+  List<Widget> _generalChildren(
+    SidebarSettings s,
+    SidebarSettingsController c,
+  ) => [
     _SwitchSettingRow(
       title: '消息分割线',
       description: '在消息之间显示分割线',
@@ -107,7 +111,10 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
     ),
   ];
 
-  List<Widget> _contextChildren(SidebarSettings s, SidebarSettingsController c) => [
+  List<Widget> _contextChildren(
+    SidebarSettings s,
+    SidebarSettingsController c,
+  ) => [
     _SliderSettingRow(
       title: '上下文消息数量',
       description: '携带的历史消息条数，0 = 无记忆（每次独立对话）',
@@ -144,127 +151,129 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
     ),
   ];
 
-  List<Widget> _inputChildren(SidebarSettings s, SidebarSettingsController c) => [
-    _SwitchSettingRow(
-      title: '长文本粘贴为文件',
-      description: '粘贴超长文本时自动转为文件附件',
-      value: s.pasteLongTextAsFile,
-      onChanged: c.setPasteLongTextAsFile,
-    ),
-    if (s.pasteLongTextAsFile)
-      _NumberSettingRow(
-        title: '触发阈值',
-        description: '超过该字符数转为文件',
-        value: s.pasteLongTextThreshold,
-        min: 100,
-        max: 10000,
-        onChanged: c.setPasteLongTextThreshold,
-      ),
-  ];
+  List<Widget> _inputChildren(SidebarSettings s, SidebarSettingsController c) =>
+      [
+        _SwitchSettingRow(
+          title: '长文本粘贴为文件',
+          description: '粘贴超长文本时自动转为文件附件',
+          value: s.pasteLongTextAsFile,
+          onChanged: c.setPasteLongTextAsFile,
+        ),
+        if (s.pasteLongTextAsFile)
+          _NumberSettingRow(
+            title: '触发阈值',
+            description: '超过该字符数转为文件',
+            value: s.pasteLongTextThreshold,
+            min: 100,
+            max: 10000,
+            onChanged: c.setPasteLongTextThreshold,
+          ),
+      ];
 
-  List<Widget> _codeChildren(SidebarSettings s, SidebarSettingsController c) => [
-    _SelectSettingRow<String>(
-      title: '代码高亮主题',
-      description: '190+ 语言语法高亮，28 种精选主题',
-      value: s.codeHighlightTheme,
-      options: const [
-        ('auto', '自动（跟随主题）'),
-        ('atom-one-dark-reasonable', 'Atom One Dark Reasonable'),
-        ('atom-one-dark', 'Atom One Dark'),
-        ('github-dark', 'GitHub Dark'),
-        ('github-dark-dimmed', 'GitHub Dark Dimmed'),
-        ('vs2015', 'VS2015 Dark'),
-        ('monokai-sublime', 'Monokai Sublime'),
-        ('dracula', 'Dracula'),
-        ('nord', 'Nord'),
-        ('solarized-dark', 'Solarized Dark'),
-        ('tokyo-night-dark', 'Tokyo Night Dark'),
-        ('androidstudio', 'Android Studio'),
-        ('night-owl', 'Night Owl'),
-        ('stackoverflow-dark', 'StackOverflow Dark'),
-        ('gruvbox-dark', 'Gruvbox Dark'),
-        ('a11y-dark', 'A11y Dark'),
-        ('shades-of-purple', 'Shades of Purple'),
-        ('panda-syntax-dark', 'Panda Dark'),
-        ('github', 'GitHub'),
-        ('atom-one-light', 'Atom One Light'),
-        ('vs', 'VS Light'),
-        ('xcode', 'Xcode'),
-        ('idea', 'IntelliJ IDEA'),
-        ('solarized-light', 'Solarized Light'),
-        ('tokyo-night-light', 'Tokyo Night Light'),
-        ('stackoverflow-light', 'StackOverflow Light'),
-        ('gruvbox-light', 'Gruvbox Light'),
-        ('a11y-light', 'A11y Light'),
-        ('panda-syntax-light', 'Panda Light'),
-      ],
-      onChanged: c.setCodeHighlightTheme,
-    ),
-    _SwitchSettingRow(
-      title: '显示行号',
-      description: '在代码块左侧显示行号',
-      value: s.codeShowLineNumbers,
-      onChanged: c.setCodeShowLineNumbers,
-    ),
-    _SwitchSettingRow(
-      title: '可折叠',
-      description: '允许折叠/展开代码块',
-      value: s.codeCollapsible,
-      onChanged: c.setCodeCollapsible,
-    ),
-    _SwitchSettingRow(
-      title: '自动换行',
-      description: '过长的代码行自动换行',
-      value: s.codeWrappable,
-      onChanged: c.setCodeWrappable,
-    ),
-    if (s.codeCollapsible)
-      _SwitchSettingRow(
-        title: '默认折叠',
-        description: '代码块默认以折叠状态显示',
-        value: s.codeDefaultCollapsed,
-        onChanged: c.setCodeDefaultCollapsed,
-      ),
-    _SliderSettingRow(
-      title: '代码字体大小',
-      description: '调整代码块内字体大小（10-24）',
-      value: s.codeFontSize.toDouble(),
-      min: 10,
-      max: 24,
-      divisions: 14,
-      valueLabel: '${s.codeFontSize}',
-      onChanged: (v) => c.setCodeFontSize(v.round()),
-    ),
-    _SwitchSettingRow(
-      title: '固定高度',
-      description: '展开后限制最大高度，内容在容器内滚动（配合全屏查看使用）',
-      value: s.codeFixedHeight,
-      onChanged: c.setCodeFixedHeight,
-    ),
-    if (s.codeFixedHeight)
-      _SliderSettingRow(
-        title: '最大高度',
-        description: '代码块展开后的最大高度（px）',
-        value: s.codeMaxHeight.toDouble(),
-        min: 100,
-        max: 800,
-        divisions: 14,
-        valueLabel: '${s.codeMaxHeight}',
-        onChanged: (v) => c.setCodeMaxHeight(v.round()),
-      ),
-    _SwitchSettingRow(
-      title: 'Mermaid 图表',
-      description: '渲染 Mermaid 流程图 / 时序图 / 饼图 / 甘特图等',
-      value: s.mermaidEnabled,
-      onChanged: c.setMermaidEnabled,
-    ),
-  ];
+  List<Widget> _codeChildren(SidebarSettings s, SidebarSettingsController c) =>
+      [
+        _SelectSettingRow<String>(
+          title: '代码高亮主题',
+          description: '190+ 语言语法高亮，28 种精选主题',
+          value: s.codeHighlightTheme,
+          options: const [
+            ('auto', '自动（跟随主题）'),
+            ('atom-one-dark-reasonable', 'Atom One Dark Reasonable'),
+            ('atom-one-dark', 'Atom One Dark'),
+            ('github-dark', 'GitHub Dark'),
+            ('github-dark-dimmed', 'GitHub Dark Dimmed'),
+            ('vs2015', 'VS2015 Dark'),
+            ('monokai-sublime', 'Monokai Sublime'),
+            ('dracula', 'Dracula'),
+            ('nord', 'Nord'),
+            ('solarized-dark', 'Solarized Dark'),
+            ('tokyo-night-dark', 'Tokyo Night Dark'),
+            ('androidstudio', 'Android Studio'),
+            ('night-owl', 'Night Owl'),
+            ('stackoverflow-dark', 'StackOverflow Dark'),
+            ('gruvbox-dark', 'Gruvbox Dark'),
+            ('a11y-dark', 'A11y Dark'),
+            ('shades-of-purple', 'Shades of Purple'),
+            ('panda-syntax-dark', 'Panda Dark'),
+            ('github', 'GitHub'),
+            ('atom-one-light', 'Atom One Light'),
+            ('vs', 'VS Light'),
+            ('xcode', 'Xcode'),
+            ('idea', 'IntelliJ IDEA'),
+            ('solarized-light', 'Solarized Light'),
+            ('tokyo-night-light', 'Tokyo Night Light'),
+            ('stackoverflow-light', 'StackOverflow Light'),
+            ('gruvbox-light', 'Gruvbox Light'),
+            ('a11y-light', 'A11y Light'),
+            ('panda-syntax-light', 'Panda Light'),
+          ],
+          onChanged: c.setCodeHighlightTheme,
+        ),
+        _SwitchSettingRow(
+          title: '显示行号',
+          description: '在代码块左侧显示行号',
+          value: s.codeShowLineNumbers,
+          onChanged: c.setCodeShowLineNumbers,
+        ),
+        _SwitchSettingRow(
+          title: '可折叠',
+          description: '允许折叠/展开代码块',
+          value: s.codeCollapsible,
+          onChanged: c.setCodeCollapsible,
+        ),
+        _SwitchSettingRow(
+          title: '自动换行',
+          description: '过长的代码行自动换行',
+          value: s.codeWrappable,
+          onChanged: c.setCodeWrappable,
+        ),
+        if (s.codeCollapsible)
+          _SwitchSettingRow(
+            title: '默认折叠',
+            description: '代码块默认以折叠状态显示',
+            value: s.codeDefaultCollapsed,
+            onChanged: c.setCodeDefaultCollapsed,
+          ),
+        _SliderSettingRow(
+          title: '代码字体大小',
+          description: '调整代码块内字体大小（10-24）',
+          value: s.codeFontSize.toDouble(),
+          min: 10,
+          max: 24,
+          divisions: 14,
+          valueLabel: '${s.codeFontSize}',
+          onChanged: (v) => c.setCodeFontSize(v.round()),
+        ),
+        _SwitchSettingRow(
+          title: '固定高度',
+          description: '展开后限制最大高度，内容在容器内滚动（配合全屏查看使用）',
+          value: s.codeFixedHeight,
+          onChanged: c.setCodeFixedHeight,
+        ),
+        if (s.codeFixedHeight)
+          _SliderSettingRow(
+            title: '最大高度',
+            description: '代码块展开后的最大高度（px）',
+            value: s.codeMaxHeight.toDouble(),
+            min: 100,
+            max: 800,
+            divisions: 14,
+            valueLabel: '${s.codeMaxHeight}',
+            onChanged: (v) => c.setCodeMaxHeight(v.round()),
+          ),
+        _SwitchSettingRow(
+          title: 'Mermaid 图表',
+          description: '渲染 Mermaid 流程图 / 时序图 / 饼图 / 甘特图等',
+          value: s.mermaidEnabled,
+          onChanged: c.setMermaidEnabled,
+        ),
+      ];
 
-  List<Widget> _mathChildren(SidebarSettings s, SidebarSettingsController c) => [
-    const _StaticSettingRow(
-      title: '渲染引擎',
-      value: 'KaTeX（flutter_math，原生渲染）',
-    ),
+  List<Widget> _mathChildren(
+    SidebarSettings s,
+    SidebarSettingsController c,
+  ) => [
+    const _StaticSettingRow(title: '渲染引擎', value: 'KaTeX（flutter_math，原生渲染）'),
     _SwitchSettingRow(
       title: '单美元符号',
       description: r'识别 $...$ 作为行内公式',
@@ -275,13 +284,10 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
 
   // ── Group descriptors for grouped mode ─────────────────────────────────
 
-  static const _groupDescriptors = <({
-    String id,
-    String title,
-    IconData icon,
-  })>[
+  static const _groupDescriptors = <({String id, String title, IconData icon})>[
     (id: 'general', title: '常规设置', icon: LucideIcons.settings2),
     (id: 'context', title: '上下文设置', icon: LucideIcons.messageSquare),
+    (id: 'parameters', title: '参数管理', icon: LucideIcons.slidersHorizontal),
     (id: 'input', title: '输入设置', icon: LucideIcons.keyboard),
     (id: 'code', title: '代码块设置', icon: LucideIcons.code),
     (id: 'math', title: '数学公式设置', icon: LucideIcons.sigma),
@@ -292,7 +298,8 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
     'general' => '7 个基础功能设置',
     'context' =>
       '消息: ${s.contextCount >= 100 ? '最大' : '${s.contextCount} 条'}'
-      ' | 输出: ${s.enableMaxOutputTokens ? _formatInt(s.maxOutputTokens) : '默认'}',
+          ' | 输出: ${s.enableMaxOutputTokens ? _formatInt(s.maxOutputTokens) : '默认'}',
+    'parameters' => '温度、TopP、推理等参数设置',
     'input' => '粘贴和输入相关的功能设置',
     'code' => '配置代码显示和编辑功能',
     'math' => '渲染引擎: KaTeX',
@@ -300,15 +307,18 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
     _ => '',
   };
 
-  List<Widget> _groupChildren(String id, SidebarSettings s, SidebarSettingsController c) =>
-      switch (id) {
-        'general' => _generalChildren(s, c),
-        'context' => _contextChildren(s, c),
-        'input' => _inputChildren(s, c),
-        'code' => _codeChildren(s, c),
-        'math' => _mathChildren(s, c),
-        _ => const [],
-      };
+  List<Widget> _groupChildren(
+    String id,
+    SidebarSettings s,
+    SidebarSettingsController c,
+  ) => switch (id) {
+    'general' => _generalChildren(s, c),
+    'context' => _contextChildren(s, c),
+    'input' => _inputChildren(s, c),
+    'code' => _codeChildren(s, c),
+    'math' => _mathChildren(s, c),
+    _ => const [],
+  };
 
   // ── Build ──────────────────────────────────────────────────────────────
 
@@ -351,6 +361,12 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
               ' | 输出: ${s.enableMaxOutputTokens ? _formatInt(s.maxOutputTokens) : '默认'}',
           chipLabel: '兼容 API',
           children: _contextChildren(s, c),
+        ),
+        const _SettingsDivider(),
+        const _SettingsGroup(
+          title: '参数管理',
+          subtitle: '温度、TopP、推理等参数设置',
+          children: [ParameterEditor()],
         ),
         const _SettingsDivider(),
         _SettingsGroup(
@@ -408,7 +424,9 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
     final textPrimary = theme.colorScheme.onSurface;
     final textSecondary = theme.colorScheme.onSurfaceVariant;
 
-    final descriptor = _groupDescriptors.where((g) => g.id == _activeGroupId).firstOrNull;
+    final descriptor = _groupDescriptors
+        .where((g) => g.id == _activeGroupId)
+        .firstOrNull;
     if (descriptor == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) setState(() => _activeGroupId = null);
@@ -417,7 +435,10 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
     }
 
     final isMcp = _activeGroupId == 'mcp';
-    final children = isMcp ? <Widget>[] : _groupChildren(_activeGroupId!, s, c);
+    final isParameters = _activeGroupId == 'parameters';
+    final children = (isMcp || isParameters)
+        ? <Widget>[]
+        : _groupChildren(_activeGroupId!, s, c);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -440,6 +461,8 @@ class _SettingsTabState extends ConsumerState<SettingsTab> {
             children: [
               if (isMcp)
                 const _McpToolsGroupContent()
+              else if (isParameters)
+                const ParameterEditor()
               else
                 for (final child in children) child,
             ],
@@ -1195,9 +1218,7 @@ class _SelectSettingRow<T> extends StatelessWidget {
         initialValue: value,
         onSelected: onChanged,
         popUpAnimationStyle: AnimationStyle.noAnimation,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         position: PopupMenuPosition.under,
         itemBuilder: (_) => [
           for (final (v, label) in options)

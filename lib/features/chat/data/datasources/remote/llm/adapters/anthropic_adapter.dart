@@ -34,6 +34,11 @@ class AnthropicAdapter implements LlmGateway {
     ];
 
     final tools = request.tools;
+    // Anthropic extended thinking: when thinkingBudget is set and reasoning is
+    // enabled, add the thinking block with budget_tokens.
+    final hasThinking =
+        request.thinkingBudget != null && request.thinkingBudget! > 0;
+
     final body = <String, dynamic>{
       'model': model.id,
       // Anthropic requires max_tokens; fall back to a sane default.
@@ -41,9 +46,31 @@ class AnthropicAdapter implements LlmGateway {
       if (request.system != null) 'system': request.system,
       'messages': messages,
       'stream': request.stream,
-      if (request.temperature != null) 'temperature': request.temperature,
+      if (request.temperature != null && !hasThinking)
+        'temperature': request.temperature,
       if (request.topP != null) 'top_p': request.topP,
-      if (tools != null && tools.isNotEmpty)
+      if (request.topK != null) 'top_k': request.topK,
+      if (request.stopSequences != null && request.stopSequences!.isNotEmpty)
+        'stop_sequences': request.stopSequences,
+      if (request.user != null && request.user!.isNotEmpty)
+        'metadata': {'user_id': request.user},
+      if (hasThinking)
+        'thinking': {
+          'type': 'enabled',
+          'budget_tokens': request.thinkingBudget,
+        },
+      if (request.webSearchEnabled == true)
+        'tools': [
+          {'type': 'web_search_20250305', 'name': 'web_search', 'max_uses': 5},
+          if (tools != null)
+            for (final t in tools)
+              {
+                'name': t.name,
+                'description': t.description,
+                'input_schema': t.inputSchema,
+              },
+        ]
+      else if (tools != null && tools.isNotEmpty)
         'tools': [
           for (final t in tools)
             {
@@ -52,6 +79,7 @@ class AnthropicAdapter implements LlmGateway {
               'input_schema': t.inputSchema,
             },
         ],
+      ...?request.customParameters,
       ...?request.extraBody,
     };
 
