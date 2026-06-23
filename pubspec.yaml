@@ -68,7 +68,8 @@ dependencies:
     path: packages/flutter_mermaid
   scrollview_observer: ^1.27.0
   # Voice feature: TTS + ASR
-  flutter_tts: ^4.2.0
+  flutter_tts:
+    path: packages/flutter_tts
   just_audio: ^0.9.46
   record: ^7.1.0
   web_socket_channel: ^3.0.2
