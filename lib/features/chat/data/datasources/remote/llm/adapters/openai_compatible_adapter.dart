@@ -52,6 +52,26 @@ class OpenAiCompatibleAdapter implements LlmGateway {
       if (request.temperature != null) 'temperature': request.temperature,
       if (request.maxTokens != null) 'max_tokens': request.maxTokens,
       if (request.topP != null) 'top_p': request.topP,
+      if (request.frequencyPenalty != null)
+        'frequency_penalty': request.frequencyPenalty,
+      if (request.presencePenalty != null)
+        'presence_penalty': request.presencePenalty,
+      if (request.seed != null) 'seed': request.seed,
+      if (request.stopSequences != null && request.stopSequences!.isNotEmpty)
+        'stop': request.stopSequences,
+      if (request.responseFormat != null && request.responseFormat != 'text')
+        'response_format': {
+          'type': request.responseFormat == 'json'
+              ? 'json_object'
+              : request.responseFormat,
+        },
+      if (request.logprobs != null) 'logprobs': request.logprobs,
+      if (request.user != null && request.user!.isNotEmpty)
+        'user': request.user,
+      if (request.reasoningEffort != null && request.reasoningEffort != 'off')
+        'reasoning_effort': request.reasoningEffort,
+      if (request.parallelToolCalls != null)
+        'parallel_tool_calls': request.parallelToolCalls,
       if (tools != null && tools.isNotEmpty)
         'tools': [
           for (final t in tools)
@@ -64,6 +84,7 @@ class OpenAiCompatibleAdapter implements LlmGateway {
               },
             },
         ],
+      ...?request.customParameters,
       ...?request.extraBody,
     };
 
@@ -190,6 +211,12 @@ class OpenAiCompatibleAdapter implements LlmGateway {
       if (request.temperature != null) 'temperature': request.temperature,
       if (request.topP != null) 'top_p': request.topP,
       if (request.maxTokens != null) 'max_output_tokens': request.maxTokens,
+      if (request.frequencyPenalty != null)
+        'frequency_penalty': request.frequencyPenalty,
+      if (request.presencePenalty != null)
+        'presence_penalty': request.presencePenalty,
+      if (request.reasoningEffort != null && request.reasoningEffort != 'off')
+        'reasoning_effort': request.reasoningEffort,
       if (hasTools) ...{
         'tools': [
           for (final t in tools)
