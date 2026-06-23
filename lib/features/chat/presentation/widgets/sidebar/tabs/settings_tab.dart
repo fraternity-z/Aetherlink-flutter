@@ -17,6 +17,7 @@ import 'package:aetherlink_flutter/features/chat/presentation/widgets/sidebar/si
 import 'package:aetherlink_flutter/features/chat/presentation/widgets/sidebar/widgets/sidebar_avatar.dart';
 import 'package:aetherlink_flutter/features/chat/presentation/widgets/sidebar/widgets/sidebar_buttons.dart';
 import 'package:aetherlink_flutter/shared/domain/mcp_server.dart';
+import 'package:aetherlink_flutter/features/settings/presentation/widgets/model_settings_widgets.dart';
 
 /// 设置 entry leading gear, `#1976d2`.
 const Color _cogBlue = Color(0xFF1976D2);
@@ -1158,7 +1159,7 @@ class _SwitchSettingRow extends StatelessWidget {
       title: title,
       description: description,
       comingSoon: comingSoon,
-      trailing: Switch(value: value, onChanged: onChanged),
+      trailing: CustomSwitch(value: value, onChanged: onChanged),
     );
   }
 }
