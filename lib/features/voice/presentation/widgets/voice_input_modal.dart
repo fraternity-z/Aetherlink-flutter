@@ -83,18 +83,18 @@ class _VoiceInputSheetState extends ConsumerState<_VoiceInputSheet>
               color: isRecording
                   ? const Color(0xFF4CAF50)
                   : isError
-                      ? theme.colorScheme.error
-                      : theme.colorScheme.surfaceContainerLow,
+                  ? theme.colorScheme.error
+                  : theme.colorScheme.surfaceContainerLow,
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
               isRecording
                   ? '正在聆听...'
                   : isProcessing
-                      ? '正在识别...'
-                      : isError
-                          ? asrState.error ?? '识别失败'
-                          : '点击开始录音',
+                  ? '正在识别...'
+                  : isError
+                  ? asrState.error ?? '识别失败'
+                  : '点击开始录音',
               style: theme.textTheme.bodySmall?.copyWith(
                 fontWeight: FontWeight.w600,
                 color: isRecording || isError
@@ -125,10 +125,7 @@ class _VoiceInputSheetState extends ConsumerState<_VoiceInputSheet>
               ),
               child: SingleChildScrollView(
                 reverse: true,
-                child: Text(
-                  asrState.text,
-                  style: theme.textTheme.bodyMedium,
-                ),
+                child: Text(asrState.text, style: theme.textTheme.bodyMedium),
               ),
             ),
           ],
@@ -156,17 +153,18 @@ class _VoiceInputSheetState extends ConsumerState<_VoiceInputSheet>
                   final scale = isRecording
                       ? 1.0 + _pulseController.value * 0.15
                       : 1.0;
-                  return Transform.scale(
-                    scale: scale,
-                    child: child,
-                  );
+                  return Transform.scale(scale: scale, child: child);
                 },
                 child: GestureDetector(
                   onTap: () async {
                     if (isRecording) {
-                      await ref.read(asrControllerProvider.notifier).stopRecording();
+                      await ref
+                          .read(asrControllerProvider.notifier)
+                          .stopRecording();
                     } else if (!isProcessing) {
-                      await ref.read(asrControllerProvider.notifier).startRecording();
+                      await ref
+                          .read(asrControllerProvider.notifier)
+                          .startRecording();
                     }
                   },
                   child: Container(
@@ -180,7 +178,9 @@ class _VoiceInputSheetState extends ConsumerState<_VoiceInputSheet>
                       boxShadow: [
                         if (isRecording)
                           BoxShadow(
-                            color: theme.colorScheme.error.withValues(alpha: 0.3),
+                            color: theme.colorScheme.error.withValues(
+                              alpha: 0.3,
+                            ),
                             blurRadius: 20,
                             spreadRadius: 4,
                           ),
@@ -213,7 +213,9 @@ class _VoiceInputSheetState extends ConsumerState<_VoiceInputSheet>
                 color: theme.colorScheme.primary,
                 onTap: asrState.text.isNotEmpty
                     ? () {
-                        ref.read(asrControllerProvider.notifier).cancelRecording();
+                        ref
+                            .read(asrControllerProvider.notifier)
+                            .cancelRecording();
                         Navigator.of(context).pop(asrState.text);
                       }
                     : null,

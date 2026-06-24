@@ -111,6 +111,14 @@ Map<TtsProviderKind, _ServiceMeta> _ttsServiceMeta() => {
     features: ['多音色', '语音设计', '语音克隆', '情感控制'],
     status: '高级',
   ),
+  TtsProviderKind.qwen: const _ServiceMeta(
+    icon: LucideIcons.languages,
+    color: Color(0xFF6236FF),
+    name: 'Qwen TTS',
+    description: '阿里通义千问语音合成，支持指令控制表现力',
+    features: ['22+音色', '10语言', '指令控制', '流式输出'],
+    status: '高级',
+  ),
 };
 
 Map<AsrProviderKind, _ServiceMeta> _asrServiceMeta() => {
@@ -514,7 +522,11 @@ class _ServiceCard extends StatelessWidget {
                           color: color.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Icon(LucideIcons.volume2, size: 16, color: color),
+                        child: Icon(
+                          LucideIcons.volume2,
+                          size: 16,
+                          color: color,
+                        ),
                       ),
                     ),
                   if (onTest != null) const SizedBox(width: 8),
@@ -690,6 +702,11 @@ class _TtsProviderDetailPageState
   late TextEditingController _mimoVoiceDescCtrl;
   late TextEditingController _mimoCloneAudioCtrl;
 
+  // Qwen-specific
+  late String _qwenLanguageType;
+  late bool _qwenOptimizeInstructions;
+  late TextEditingController _qwenInstructionsCtrl;
+
   bool get _isSystem => widget.kind == TtsProviderKind.system;
   bool get _isVolcano => widget.kind == TtsProviderKind.volcano;
   bool get _isElevenLabs => widget.kind == TtsProviderKind.elevenlabs;
@@ -758,6 +775,10 @@ class _TtsProviderDetailPageState
     _mimoVoiceCloneAudio = p.mimoVoiceCloneAudio;
     _mimoVoiceDescCtrl = TextEditingController(text: p.mimoVoiceDescription);
     _mimoCloneAudioCtrl = TextEditingController(text: p.mimoVoiceCloneAudio);
+    // Qwen
+    _qwenLanguageType = p.qwenLanguageType;
+    _qwenOptimizeInstructions = p.qwenOptimizeInstructions;
+    _qwenInstructionsCtrl = TextEditingController(text: p.qwenInstructions);
   }
 
   @override
@@ -776,6 +797,7 @@ class _TtsProviderDetailPageState
     _speaker2NameCtrl.dispose();
     _mimoVoiceDescCtrl.dispose();
     _mimoCloneAudioCtrl.dispose();
+    _qwenInstructionsCtrl.dispose();
     _systemTts?.dispose();
     super.dispose();
   }
@@ -828,6 +850,9 @@ class _TtsProviderDetailPageState
     mimoVoiceDescription: _mimoVoiceDescCtrl.text,
     mimoOptimizeTextPreview: _mimoOptimizeTextPreview,
     mimoVoiceCloneAudio: _mimoCloneAudioCtrl.text,
+    qwenLanguageType: _qwenLanguageType,
+    qwenInstructions: _qwenInstructionsCtrl.text,
+    qwenOptimizeInstructions: _qwenOptimizeInstructions,
   );
 
   /// Persists the current form values. Called automatically when leaving the
@@ -854,6 +879,7 @@ class _TtsProviderDetailPageState
     TtsProviderKind.elevenlabs,
     TtsProviderKind.gemini,
     TtsProviderKind.mimo,
+    TtsProviderKind.qwen,
   }.contains(widget.kind);
 
   @override
@@ -918,83 +944,83 @@ class _TtsProviderDetailPageState
                       ],
                     ],
                     if (!_isSystem) ...[
-                    Divider(height: 24, color: theme.dividerColor),
-                    // -- Playback sliders (Azure uses its own prosody controls) --
-                    if (!_isAzure)
-                      _SliderRow(
-                        label: '语速',
-                        value: _speed,
-                        min:
-                            (_sfHasSpeedGain ||
-                                _isElevenLabs ||
-                                widget.kind == TtsProviderKind.openai)
-                            ? 0.25
-                            : 0.5,
-                        max:
-                            (_sfHasSpeedGain ||
-                                _isElevenLabs ||
-                                widget.kind == TtsProviderKind.openai)
-                            ? 4.0
-                            : 2.0,
-                        divisions:
-                            (_sfHasSpeedGain ||
-                                _isElevenLabs ||
-                                widget.kind == TtsProviderKind.openai)
-                            ? 15
-                            : 6,
-                        onChanged: (v) => setState(() => _speed = v),
-                      ),
-                    if (_isVolcano) ...[
-                      _SliderRow(
-                        label: '音量',
-                        value: _volume,
-                        min: 0.5,
-                        max: 2.0,
-                        divisions: 6,
-                        onChanged: (v) => setState(() => _volume = v),
-                      ),
-                      _SliderRow(
-                        label: '音调',
-                        value: _pitch,
-                        min: 0.5,
-                        max: 2.0,
-                        divisions: 6,
-                        onChanged: (v) => setState(() => _pitch = v),
-                      ),
-                    ],
-                    if (_sfHasSpeedGain) ...[
-                      _SliderRow(
-                        label: '增益',
-                        value: _gain,
-                        min: -10,
-                        max: 10,
-                        divisions: 20,
-                        onChanged: (v) => setState(() => _gain = v),
-                      ),
-                    ],
-                    if (widget.kind == TtsProviderKind.minimax) ...[
-                      _SliderRow(
-                        label: '音量',
-                        value: _volume,
-                        min: 0.1,
-                        max: 10.0,
-                        divisions: 99,
-                        onChanged: (v) => setState(() => _volume = v),
-                      ),
-                      _SliderRow(
-                        label: '音调',
-                        value: _pitch,
-                        min: -12,
-                        max: 12,
-                        divisions: 24,
-                        onChanged: (v) => setState(() => _pitch = v),
-                      ),
-                    ],
-                    // -- Volcano advanced (cluster, model, resource ID) --
-                    if (_isVolcano) ...[
                       Divider(height: 24, color: theme.dividerColor),
-                      ..._buildVolcanoAdvanced(),
-                    ],
+                      // -- Playback sliders (Azure uses its own prosody controls) --
+                      if (!_isAzure)
+                        _SliderRow(
+                          label: '语速',
+                          value: _speed,
+                          min:
+                              (_sfHasSpeedGain ||
+                                  _isElevenLabs ||
+                                  widget.kind == TtsProviderKind.openai)
+                              ? 0.25
+                              : 0.5,
+                          max:
+                              (_sfHasSpeedGain ||
+                                  _isElevenLabs ||
+                                  widget.kind == TtsProviderKind.openai)
+                              ? 4.0
+                              : 2.0,
+                          divisions:
+                              (_sfHasSpeedGain ||
+                                  _isElevenLabs ||
+                                  widget.kind == TtsProviderKind.openai)
+                              ? 15
+                              : 6,
+                          onChanged: (v) => setState(() => _speed = v),
+                        ),
+                      if (_isVolcano) ...[
+                        _SliderRow(
+                          label: '音量',
+                          value: _volume,
+                          min: 0.5,
+                          max: 2.0,
+                          divisions: 6,
+                          onChanged: (v) => setState(() => _volume = v),
+                        ),
+                        _SliderRow(
+                          label: '音调',
+                          value: _pitch,
+                          min: 0.5,
+                          max: 2.0,
+                          divisions: 6,
+                          onChanged: (v) => setState(() => _pitch = v),
+                        ),
+                      ],
+                      if (_sfHasSpeedGain) ...[
+                        _SliderRow(
+                          label: '增益',
+                          value: _gain,
+                          min: -10,
+                          max: 10,
+                          divisions: 20,
+                          onChanged: (v) => setState(() => _gain = v),
+                        ),
+                      ],
+                      if (widget.kind == TtsProviderKind.minimax) ...[
+                        _SliderRow(
+                          label: '音量',
+                          value: _volume,
+                          min: 0.1,
+                          max: 10.0,
+                          divisions: 99,
+                          onChanged: (v) => setState(() => _volume = v),
+                        ),
+                        _SliderRow(
+                          label: '音调',
+                          value: _pitch,
+                          min: -12,
+                          max: 12,
+                          divisions: 24,
+                          onChanged: (v) => setState(() => _pitch = v),
+                        ),
+                      ],
+                      // -- Volcano advanced (cluster, model, resource ID) --
+                      if (_isVolcano) ...[
+                        Divider(height: 24, color: theme.dividerColor),
+                        ..._buildVolcanoAdvanced(),
+                      ],
                     ], // end if (!_isSystem)
                   ],
                 ),
@@ -1123,6 +1149,8 @@ class _TtsProviderDetailPageState
         return _buildVolcanoVoice();
       case TtsProviderKind.mimo:
         return _buildMimoVoice();
+      case TtsProviderKind.qwen:
+        return _buildQwenVoice();
     }
   }
 
@@ -1844,10 +1872,7 @@ class _TtsProviderDetailPageState
       _DropdownField(
         label: '音频格式',
         value: _audioFormat.isEmpty ? 'wav' : _audioFormat,
-        items: const {
-          'wav': 'WAV - 无损音频',
-          'pcm16': 'PCM16 - 原始音频流',
-        },
+        items: const {'wav': 'WAV - 无损音频', 'pcm16': 'PCM16 - 原始音频流'},
         onChanged: (v) => setState(() => _audioFormat = v),
       ),
       const SizedBox(height: 12),
@@ -1898,8 +1923,93 @@ class _TtsProviderDetailPageState
           '44100': '44100 Hz',
           '48000': '48000 Hz',
         },
-        onChanged: (v) => setState(() => _sampleRate = int.tryParse(v) ?? 32000),
+        onChanged: (v) =>
+            setState(() => _sampleRate = int.tryParse(v) ?? 32000),
       ),
+    ];
+  }
+
+  List<Widget> _buildQwenVoice() {
+    final isInstruct = _model.contains('instruct');
+    return [
+      // -- Model selection --
+      _DropdownField(
+        label: '模型',
+        value: _model.isEmpty ? 'qwen3-tts-flash' : _model,
+        items: const {
+          'qwen3-tts-flash': 'Qwen3 TTS Flash - 基础语音合成',
+          'qwen3-tts-instruct-flash': 'Qwen3 TTS Instruct Flash - 指令控制',
+        },
+        onChanged: (v) => setState(() => _model = v),
+      ),
+      const SizedBox(height: 12),
+      // -- Voice selection --
+      _DropdownField(
+        label: '音色',
+        value: _voice.isEmpty ? 'Cherry' : _voice,
+        items: const {
+          'Cherry': 'Cherry - 中文女声',
+          'Serena': 'Serena - 中文女声',
+          'Ethan': 'Ethan - 中文男声',
+          'Chelsie': 'Chelsie - 中英双语女声',
+          'Momo': 'Momo - 日语女声',
+          'Vivian': 'Vivian - 中文女声',
+          'Moon': 'Moon - 中文女声',
+          'Maia': 'Maia - 中文女声',
+          'Kai': 'Kai - 中文男声',
+          'Nofish': 'Nofish - 中文男声',
+          'Bella': 'Bella - 英文女声',
+          'Jennifer': 'Jennifer - 英文女声',
+          'Ryan': 'Ryan - 英文男声',
+          'Katerina': 'Katerina - 俄语女声',
+          'Aiden': 'Aiden - 英文男声',
+          'Eldric Sage': 'Eldric Sage - 英文男声',
+          'Mia': 'Mia - 英文女声',
+          'Mochi': 'Mochi - 中文女声',
+          'Bellona': 'Bellona - 英文女声',
+          'Vincent': 'Vincent - 中文男声',
+          'Bunny': 'Bunny - 中英双语女声',
+          'Neil': 'Neil - 中英双语男声',
+        },
+        onChanged: (v) => setState(() => _voice = v),
+      ),
+      const SizedBox(height: 12),
+      // -- Language selection --
+      _DropdownField(
+        label: '语言',
+        value: _qwenLanguageType,
+        items: const {
+          'Auto': 'Auto - 自动检测',
+          'Chinese': 'Chinese - 中文',
+          'English': 'English - 英文',
+          'Japanese': 'Japanese - 日语',
+          'Korean': 'Korean - 韩语',
+          'French': 'French - 法语',
+          'German': 'German - 德语',
+          'Italian': 'Italian - 意大利语',
+          'Portuguese': 'Portuguese - 葡萄牙语',
+          'Spanish': 'Spanish - 西班牙语',
+          'Russian': 'Russian - 俄语',
+        },
+        onChanged: (v) => setState(() => _qwenLanguageType = v),
+      ),
+      const SizedBox(height: 12),
+      // -- Instructions (only for instruct model) --
+      if (isInstruct) ...[
+        ModelFormField(
+          label: '指令 (Instructions)',
+          hint: '使用自然语言控制语音表现力，例如：用温柔缓慢的语气朗读...',
+          controller: _qwenInstructionsCtrl,
+          maxLines: 3,
+        ),
+        const SizedBox(height: 12),
+        _InlineToggle(
+          label: '优化指令 (Optimize Instructions)',
+          value: _qwenOptimizeInstructions,
+          onChanged: (v) => setState(() => _qwenOptimizeInstructions = v),
+        ),
+        const SizedBox(height: 12),
+      ],
     ];
   }
 
@@ -2413,10 +2523,10 @@ class _SystemTtsConfigSectionState
         : settings.systemTtsEngine;
     final currentLanguage = settings.systemTtsLanguage.isEmpty
         ? (_languages.contains('zh-CN')
-            ? 'zh-CN'
-            : (_languages.contains('en-US')
-                ? 'en-US'
-                : (_languages.isNotEmpty ? _languages.first : '')))
+              ? 'zh-CN'
+              : (_languages.contains('en-US')
+                    ? 'en-US'
+                    : (_languages.isNotEmpty ? _languages.first : '')))
         : settings.systemTtsLanguage;
 
     return Column(

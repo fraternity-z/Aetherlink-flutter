@@ -35,8 +35,7 @@ class VoiceSettingsController extends _$VoiceSettingsController
 
   // -- TTS ------------------------------------------------------------------
 
-  void setEnableTts(bool value) =>
-      persist(state.copyWith(enableTts: value));
+  void setEnableTts(bool value) => persist(state.copyWith(enableTts: value));
 
   void setActiveTtsProvider(String providerId) =>
       persist(state.copyWith(activeTtsProviderId: providerId));
@@ -53,15 +52,18 @@ class VoiceSettingsController extends _$VoiceSettingsController
   }
 
   void removeTtsProvider(String providerId) {
-    persist(state.copyWith(
-      ttsProviders: state.ttsProviders.where((p) => p.id != providerId).toList(),
-    ));
+    persist(
+      state.copyWith(
+        ttsProviders: state.ttsProviders
+            .where((p) => p.id != providerId)
+            .toList(),
+      ),
+    );
   }
 
   // -- ASR ------------------------------------------------------------------
 
-  void setEnableAsr(bool value) =>
-      persist(state.copyWith(enableAsr: value));
+  void setEnableAsr(bool value) => persist(state.copyWith(enableAsr: value));
 
   void setActiveAsrProvider(String providerId) =>
       persist(state.copyWith(activeAsrProviderId: providerId));
@@ -78,9 +80,13 @@ class VoiceSettingsController extends _$VoiceSettingsController
   }
 
   void removeAsrProvider(String providerId) {
-    persist(state.copyWith(
-      asrProviders: state.asrProviders.where((p) => p.id != providerId).toList(),
-    ));
+    persist(
+      state.copyWith(
+        asrProviders: state.asrProviders
+            .where((p) => p.id != providerId)
+            .toList(),
+      ),
+    );
   }
 
   // -- Global ---------------------------------------------------------------

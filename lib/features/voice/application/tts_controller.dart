@@ -37,6 +37,7 @@ class TtsController extends _$TtsController {
   final Map<int, Uint8List> _cache = {};
   CancelToken? _cancelToken;
   StreamSubscription<ProcessingState>? _playerSub;
+
   /// The provider driving the current playback session. Set by [speak]/
   /// [preview]; used for chunk continuation so playback stays consistent even
   /// if the globally-active provider changes mid-playback.
@@ -206,10 +207,7 @@ class TtsController extends _$TtsController {
       return;
     }
 
-    state = state.copyWith(
-      status: TtsStatus.loading,
-      currentChunk: index,
-    );
+    state = state.copyWith(status: TtsStatus.loading, currentChunk: index);
 
     try {
       if (provider.kind == TtsProviderKind.system) {
@@ -241,25 +239,22 @@ class TtsController extends _$TtsController {
 
       state = state.copyWith(status: TtsStatus.playing);
       await _audioPlayer.setSpeed(state.speed);
-      _playerSub ??= _audioPlayer.processingStateStream.listen(_onProcessingStateChanged);
+      _playerSub ??= _audioPlayer.processingStateStream.listen(
+        _onProcessingStateChanged,
+      );
 
       // Write to a temp file for reliable playback across Android devices.
       final tempDir = await getTemporaryDirectory();
       final file = File('${tempDir.path}/tts_chunk_$index.audio');
       await file.writeAsBytes(bytes, flush: true);
-      await _audioPlayer.setAudioSource(
-        AudioSource.uri(Uri.file(file.path)),
-      );
+      await _audioPlayer.setAudioSource(AudioSource.uri(Uri.file(file.path)));
       await _audioPlayer.play();
 
       // Prefetch the next few chunks.
       _prefetch(index + 1, provider, count: 3);
     } catch (e) {
       if (e is DioException && e.type == DioExceptionType.cancel) return;
-      state = state.copyWith(
-        status: TtsStatus.error,
-        error: '语音合成失败: $e',
-      );
+      state = state.copyWith(status: TtsStatus.error, error: '语音合成失败: $e');
     }
   }
 
@@ -279,7 +274,11 @@ class TtsController extends _$TtsController {
   }
 
   void _prefetch(int startIndex, TtsProviderSetting provider, {int count = 3}) {
-    for (var i = startIndex; i < startIndex + count && i < _chunks.length; i++) {
+    for (
+      var i = startIndex;
+      i < startIndex + count && i < _chunks.length;
+      i++
+    ) {
       if (_cache.containsKey(i)) continue;
       final idx = i;
       // Fire-and-forget prefetch.
@@ -296,7 +295,8 @@ class TtsController extends _$TtsController {
       // Current chunk finished — play next.
       final next = state.currentChunk + 1;
       if (next < _chunks.length) {
-        final provider = _playbackProvider ?? ref.read(activeTtsProviderProvider);
+        final provider =
+            _playbackProvider ?? ref.read(activeTtsProviderProvider);
         if (provider != null) {
           _playChunk(next, provider);
         }
@@ -307,13 +307,15 @@ class TtsController extends _$TtsController {
   }
 
   void _cleanUpTempFiles() {
-    getTemporaryDirectory().then((dir) {
-      for (final f in dir.listSync()) {
-        if (f is File && f.path.contains('tts_chunk_')) {
-          f.deleteSync();
-        }
-      }
-    }).catchError((Object _) {});
+    getTemporaryDirectory()
+        .then((dir) {
+          for (final f in dir.listSync()) {
+            if (f is File && f.path.contains('tts_chunk_')) {
+              f.deleteSync();
+            }
+          }
+        })
+        .catchError((Object _) {});
   }
 
   void _dispose() {
