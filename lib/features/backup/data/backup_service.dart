@@ -207,11 +207,14 @@ class BackupService {
       throw const FormatException('无法解析 JSON 备份文件');
     }
 
-    // Validate: must have topics or assistants or appInfo.
+    // Validate: must have topics or assistants or appInfo or modelConfig.
     final hasTopics = root['topics'] is List;
     final hasAssistants = root['assistants'] is List;
     final hasAppInfo = root['appInfo'] is Map;
-    if (!hasTopics && !hasAssistants && !hasAppInfo) {
+    final hasModelConfig = root['modelConfig'] is Map;
+    final hasUserSettings = root['userSettings'] is Map;
+    if (!hasTopics && !hasAssistants && !hasAppInfo && !hasModelConfig &&
+        !hasUserSettings) {
       throw const FormatException(
         '不是有效的 AetherLink Web 备份文件',
       );
@@ -372,16 +375,57 @@ class BackupService {
       assistantsJson.add(astJson);
     }
 
+    // --- Providers ---
+    // Full backup: providers live inside settings.providers
+    // Selective backup: providers live inside modelConfig.providers
+    final providersJson = <Map<String, dynamic>>[];
+
+    final rawSettings = root['settings'];
+    final rawModelConfig = root['modelConfig'];
+
+    // Extract providers from full backup (settings.providers)
+    if (rawSettings is Map<String, dynamic>) {
+      final settingsProviders = rawSettings['providers'] as List<dynamic>?;
+      if (settingsProviders != null) {
+        for (final p in settingsProviders) {
+          if (p is Map<String, dynamic>) {
+            providersJson.add(_normalizeWebProvider(p));
+          }
+        }
+      }
+    }
+
+    // Extract providers from selective backup (modelConfig.providers)
+    // Only if we didn't already get them from settings
+    if (providersJson.isEmpty && rawModelConfig is Map<String, dynamic>) {
+      final mcProviders = rawModelConfig['providers'] as List<dynamic>?;
+      if (mcProviders != null) {
+        for (final p in mcProviders) {
+          if (p is Map<String, dynamic>) {
+            providersJson.add(_normalizeWebProvider(p));
+          }
+        }
+      }
+    }
+
     // --- Settings / localStorage → KV pairs ---
     // Web stores settings as a JSON object + localStorage object.
     // Flutter stores them in app_setting_rows (key-value table).
-    final rawSettings = root['settings'];
     if (rawSettings is Map<String, dynamic>) {
-      // Store the whole settings object as a single KV entry.
+      // Store the whole settings object as a single KV entry for reference.
       settingsJson.add({
         'key': 'web_settings',
         'value': jsonEncode(rawSettings),
       });
+      // Also extract individual user settings as dedicated KV pairs
+      // so the Flutter app can actually read them.
+      _extractUserSettings(rawSettings, settingsJson);
+    }
+
+    // Handle selective backup's userSettings field
+    final rawUserSettings = root['userSettings'];
+    if (rawUserSettings is Map<String, dynamic>) {
+      _extractUserSettings(rawUserSettings, settingsJson);
     }
 
     final rawLocalStorage = root['localStorage'];
@@ -401,10 +445,146 @@ class BackupService {
       messages: messagesJson,
       messageBlocks: blocksJson,
       assistants: assistantsJson,
-      providers: const [],
+      providers: providersJson,
       groups: const [],
       settings: settingsJson,
     );
+  }
+
+  /// Accepted ModelType enum wire values (see `shared/domain/model_type.dart`).
+  static const _knownModelTypes = <String>{
+    'chat', 'vision', 'audio', 'embedding', 'tool', 'reasoning',
+    'image_gen', 'video_gen', 'function_calling', 'web_search',
+    'rerank', 'code_gen', 'translation', 'transcription',
+  };
+
+  /// Normalizes a Web ModelProvider JSON to match Flutter's ModelProvider shape.
+  ///
+  /// `ModelProvider.fromJson` requires `id`, `name`, `avatar`, `color` and
+  /// each nested `Model.fromJson` requires `id`, `name`, `provider`. If any
+  /// model is missing these the ENTIRE provider deserialization throws, so we
+  /// filter invalid models and fill defaults for the provider itself.
+  static Map<String, dynamic> _normalizeWebProvider(Map<String, dynamic> p) {
+    final json = Map<String, dynamic>.from(p);
+
+    // Ensure required provider fields (all required String in ModelProvider).
+    json['id'] ??= '';
+    json['name'] ??= (json['id'] ?? '').toString().isNotEmpty
+        ? json['id']
+        : 'Unknown';
+    json['avatar'] ??= (json['name'] ?? 'P').toString().isNotEmpty
+        ? (json['name'] ?? 'P').toString().substring(0, 1).toUpperCase()
+        : 'P';
+    json['color'] ??= '#10a37f';
+    json['isEnabled'] ??= false;
+
+    // Ensure models is a List (not null).
+    if (json['models'] is! List) {
+      json['models'] = <dynamic>[];
+    }
+
+    // Normalize each model, filtering out entries that would crash fromJson.
+    // Model.fromJson requires: id (String), name (String), provider (String).
+    final models = <Map<String, dynamic>>[];
+    for (final m in json['models'] as List) {
+      if (m is! Map<String, dynamic>) continue;
+      final modelJson = Map<String, dynamic>.from(m);
+
+      // id is required — skip models without one.
+      final modelId = modelJson['id'];
+      if (modelId == null || modelId.toString().isEmpty) continue;
+
+      // name defaults to id if missing.
+      modelJson['name'] ??= modelId.toString();
+
+      // provider defaults to the parent provider's id.
+      modelJson['provider'] ??= json['id'];
+
+      // Filter modelTypes to known enum values to prevent fromJson crash.
+      // ModelType enum only accepts specific string values; unknown values
+      // would cause the entire Model.fromJson to throw.
+      if (modelJson['modelTypes'] is List) {
+        modelJson['modelTypes'] = (modelJson['modelTypes'] as List)
+            .where((t) => _knownModelTypes.contains(t))
+            .toList();
+      }
+
+      // Strip web-only model fields.
+      modelJson.remove('useCorsPlugin');
+
+      models.add(modelJson);
+    }
+    json['models'] = models;
+
+    // Strip web-only provider fields that don't exist in Flutter.
+    json.remove('useCorsPlugin');
+    json.remove('customModelEndpoint');
+
+    return json;
+  }
+
+  /// Extracts individual user settings from a Web settings/userSettings map
+  /// and stores them as dedicated KV pairs in [settingsJson].
+  static void _extractUserSettings(
+    Map<String, dynamic> settings,
+    List<Map<String, dynamic>> settingsJson,
+  ) {
+    // List of settings keys that are meaningful to the Flutter app.
+    const directKeys = [
+      'theme',
+      'fontSize',
+      'language',
+      'sendWithEnter',
+      'messageStyle',
+      'showUserAvatar',
+      'showModelAvatar',
+      'showModelName',
+      'codeShowLineNumbers',
+      'codeCollapsible',
+      'codeWrapping',
+      'codeWrappable',
+      'pasteLongTextAsFile',
+      'pasteLongTextThreshold',
+      'renderUserInputAsMarkdown',
+      'enableTopicNaming',
+      'topicNamingModelId',
+      'defaultModelId',
+      'currentModelId',
+      'thinkingDisplayStyle',
+      'thoughtAutoCollapse',
+      'autoScrollToBottom',
+      'mobileInputMethodEnterAsNewline',
+    ];
+
+    for (final key in directKeys) {
+      final value = settings[key];
+      if (value == null) continue;
+      settingsJson.add({
+        'key': key,
+        'value': value is String ? value : jsonEncode(value),
+      });
+    }
+
+    // Store complex nested settings as JSON blobs
+    const nestedKeys = [
+      'topToolbar',
+      'hapticFeedback',
+      'contextCondense',
+      'chatBackground',
+      'customBubbleColors',
+      'systemPromptVariables',
+      'toolbarButtons',
+      'webSearch',
+    ];
+
+    for (final key in nestedKeys) {
+      final value = settings[key];
+      if (value == null) continue;
+      settingsJson.add({
+        'key': key,
+        'value': jsonEncode(value),
+      });
+    }
   }
 
   /// Normalizes Web status values to Flutter-compatible status strings.
