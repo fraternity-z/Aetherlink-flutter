@@ -116,7 +116,11 @@ class BackupSettingsPage extends ConsumerWidget {
 
   void _push(BuildContext context, Widget page) {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => page),
+      PageRouteBuilder<void>(
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+        pageBuilder: (_, __, ___) => page,
+      ),
     );
   }
 }
