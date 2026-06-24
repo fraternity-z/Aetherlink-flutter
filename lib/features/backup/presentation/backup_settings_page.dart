@@ -187,7 +187,7 @@ class _BackupSettingsPageState extends ConsumerState<BackupSettingsPage> {
   }
 
   Future<void> _pickAndRestore(BackupController controller) async {
-    final result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['zip'],
     );
@@ -766,24 +766,35 @@ class _BackupSettingsPageState extends ConsumerState<BackupSettingsPage> {
 
   Widget _buildImportSection(BackupController controller, ThemeData theme) {
     return ModelSettingsCard(
-      title: '导入第三方数据',
-      children: [
-        ListTile(
-          leading: const Icon(LucideIcons.download, size: 20),
-          title: const Text('导入 ChatboxAI'),
-          subtitle: const Text('从 ChatboxAI 导出的 JSON 文件导入'),
-          trailing: const Icon(LucideIcons.chevronRight, size: 16),
-          onTap: () => _showImportDialog(controller, 'chatbox'),
-        ),
-        const Divider(height: 1, indent: 56),
-        ListTile(
-          leading: const Icon(LucideIcons.download, size: 20),
-          title: const Text('导入 Cherry Studio'),
-          subtitle: const Text('从 Cherry Studio 备份文件导入（ZIP/JSON）'),
-          trailing: const Icon(LucideIcons.chevronRight, size: 16),
-          onTap: () => _showImportDialog(controller, 'cherry'),
-        ),
-      ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '导入第三方数据',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(LucideIcons.download, size: 20),
+            title: const Text('导入 ChatboxAI'),
+            subtitle: const Text('从 ChatboxAI 导出的 JSON 文件导入'),
+            trailing: const Icon(LucideIcons.chevronRight, size: 16),
+            onTap: () => _showImportDialog(controller, 'chatbox'),
+          ),
+          const Divider(height: 1, indent: 56),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(LucideIcons.download, size: 20),
+            title: const Text('导入 Cherry Studio'),
+            subtitle: const Text('从 Cherry Studio 备份文件导入（ZIP/JSON）'),
+            trailing: const Icon(LucideIcons.chevronRight, size: 16),
+            onTap: () => _showImportDialog(controller, 'cherry'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -813,7 +824,7 @@ class _BackupSettingsPageState extends ConsumerState<BackupSettingsPage> {
     if (mode == null) return;
 
     final extensions = source == 'chatbox' ? ['json'] : ['zip', 'json', 'bak'];
-    final result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: extensions,
     );
@@ -836,16 +847,26 @@ class _BackupSettingsPageState extends ConsumerState<BackupSettingsPage> {
 
   Widget _buildDiagnosticSection(BackupController controller, ThemeData theme) {
     return ModelSettingsCard(
-      title: '数据库诊断',
-      children: [
-        ListTile(
-          leading: const Icon(LucideIcons.database, size: 20),
-          title: const Text('运行诊断'),
-          subtitle: const Text('检查数据库完整性，查找孤立数据'),
-          trailing: const Icon(LucideIcons.chevronRight, size: 16),
-          onTap: () => _showDiagnosticDialog(controller),
-        ),
-      ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '数据库诊断',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(LucideIcons.database, size: 20),
+            title: const Text('运行诊断'),
+            subtitle: const Text('检查数据库完整性，查找孤立数据'),
+            trailing: const Icon(LucideIcons.chevronRight, size: 16),
+            onTap: () => _showDiagnosticDialog(controller),
+          ),
+        ],
+      ),
     );
   }
 
