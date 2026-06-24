@@ -162,7 +162,7 @@ class BackupController extends _$BackupController {
 
   /// Picks a local ZIP file and restores from it.
   Future<BackupManifest?> pickAndPeekBackup() async {
-    final result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['zip'],
     );
@@ -507,7 +507,7 @@ class BackupController extends _$BackupController {
     try {
       // Safety: create auto-backup before overwrite import
       if (mode == RestoreMode.overwrite) {
-        await _service.createAutoBackup();
+        await _service.createAutoBackup(reason: 'ChatboxAI 导入前自动备份');
       }
       final db = ref.read(appDatabaseProvider);
       final result = await ChatboxImporter.import(file: file, mode: mode, db: db);
@@ -527,7 +527,7 @@ class BackupController extends _$BackupController {
     state = state.copyWith(status: BackupStatus.working, message: '正在导入 Cherry Studio 数据...');
     try {
       if (mode == RestoreMode.overwrite) {
-        await _service.createAutoBackup();
+        await _service.createAutoBackup(reason: 'Cherry Studio 导入前自动备份');
       }
       final db = ref.read(appDatabaseProvider);
       final result = await CherryImporter.import(file: file, mode: mode, db: db);
@@ -558,7 +558,7 @@ class BackupController extends _$BackupController {
     state = state.copyWith(status: BackupStatus.working, message: '正在修复数据库...');
     try {
       // Auto-backup before repair
-      await _service.createAutoBackup();
+      await _service.createAutoBackup(reason: '数据库修复前自动备份');
       final db = ref.read(appDatabaseProvider);
       final service = DatabaseDiagnosticService(db: db);
       final result = await service.repair();
