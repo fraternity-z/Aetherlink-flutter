@@ -259,7 +259,27 @@ class _MarkdownTableState extends State<MarkdownTable> {
           colCount: colCount,
           borderColor: borderColor,
           headerBg: headerBg,
-          maxColWidth: maxWidth,
+        );
+
+        // Always horizontally scrollable so long cell content stays on one line
+        // (no wrapping/cramming). To avoid blank space on the right when the
+        // table is narrower than the viewport, force it to at least the
+        // viewport width (ConstrainedBox.minWidth) and size it to its natural
+        // single-line content width via IntrinsicWidth — the flex columns then
+        // stretch to fill any leftover space.
+        final Widget tableContent = ScrollConfiguration(
+          behavior: ScrollConfiguration.of(
+            context,
+          ).copyWith(scrollbars: false),
+          child: SingleChildScrollView(
+            controller: _controller,
+            scrollDirection: Axis.horizontal,
+            physics: const ClampingScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: maxWidth),
+              child: IntrinsicWidth(child: table),
+            ),
+          ),
         );
 
         // rikkahub: shapes.large = 16dp, 1dp outlineVariant border
@@ -320,18 +340,8 @@ class _MarkdownTableState extends State<MarkdownTable> {
                 ),
                 // Divider between toolbar and table content
                 Divider(height: 1, thickness: 0.5, color: borderColor),
-                // Table content with horizontal scroll
-                ScrollConfiguration(
-                  behavior: ScrollConfiguration.of(
-                    context,
-                  ).copyWith(scrollbars: false),
-                  child: SingleChildScrollView(
-                    controller: _controller,
-                    scrollDirection: Axis.horizontal,
-                    physics: const ClampingScrollPhysics(),
-                    child: table,
-                  ),
-                ),
+                // Table content (flex-filled when it fits, scrollable when wide)
+                tableContent,
               ],
             ),
           ),
@@ -345,12 +355,8 @@ class _MarkdownTableState extends State<MarkdownTable> {
     required int colCount,
     required Color borderColor,
     required Color headerBg,
-    required double maxColWidth,
   }) {
-    final columnWidth = _ContentColumnWidth(
-      minWidth: 80,
-      maxWidth: math.min(200, maxColWidth),
-    );
+    const columnWidth = _ContentColumnWidth(minWidth: 80);
     // rikkahub CellBox: each cell has its own 0.5dp border on all 4 sides.
     // Flutter Table doesn't support per-cell borders, so we use TableBorder.all
     // to draw 0.5dp lines on every edge (top, bottom, left, right, inside).
@@ -445,13 +451,14 @@ class _ToolbarIconButton extends StatelessWidget {
   }
 }
 
-/// Sizes a column between [minWidth] and [maxWidth]. Columns stretch to fill
-/// the viewport when the table is narrower than available width.
+/// Sizes each column to its natural single-line content width (floored at
+/// [minWidth], no upper cap) so cell text never wraps — wide tables scroll
+/// horizontally instead. [flex] lets columns share any leftover space so a
+/// table narrower than the viewport still fills the width with no right gap.
 class _ContentColumnWidth extends TableColumnWidth {
-  const _ContentColumnWidth({required this.minWidth, required this.maxWidth});
+  const _ContentColumnWidth({required this.minWidth});
 
   final double minWidth;
-  final double maxWidth;
 
   @override
   double maxIntrinsicWidth(Iterable<RenderBox> cells, double containerWidth) {
@@ -460,7 +467,7 @@ class _ContentColumnWidth extends TableColumnWidth {
       cell.layout(const BoxConstraints(), parentUsesSize: true);
       width = math.max(width, cell.size.width);
     }
-    return width.clamp(minWidth, maxWidth);
+    return width;
   }
 
   @override
