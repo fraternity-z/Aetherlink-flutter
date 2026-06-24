@@ -43,13 +43,13 @@ class FullScreenVoicePicker extends StatefulWidget {
         ),
         transitionsBuilder: (_, animation, __, child) {
           return SlideTransition(
-            position: Tween(
-              begin: const Offset(0, 1),
-              end: Offset.zero,
-            ).animate(CurvedAnimation(
-              parent: animation,
-              curve: Curves.easeOutCubic,
-            )),
+            position: Tween(begin: const Offset(0, 1), end: Offset.zero)
+                .animate(
+                  CurvedAnimation(
+                    parent: animation,
+                    curve: Curves.easeOutCubic,
+                  ),
+                ),
             child: child,
           );
         },
@@ -91,10 +91,12 @@ class _FullScreenVoicePickerState extends State<FullScreenVoicePicker>
     if (_query.isEmpty) return items;
     final q = _query.toLowerCase();
     return items
-        .where((i) =>
-            i.label.toLowerCase().contains(q) ||
-            i.subLabel.toLowerCase().contains(q) ||
-            i.key.toLowerCase().contains(q))
+        .where(
+          (i) =>
+              i.label.toLowerCase().contains(q) ||
+              i.subLabel.toLowerCase().contains(q) ||
+              i.key.toLowerCase().contains(q),
+        )
         .toList();
   }
 
@@ -157,8 +159,10 @@ class _FullScreenVoicePickerState extends State<FullScreenVoicePicker>
                 ),
                 // Search bar
                 Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 6,
+                  ),
                   child: TextField(
                     controller: _searchCtrl,
                     onChanged: (v) => setState(() => _query = v.trim()),
@@ -181,10 +185,13 @@ class _FullScreenVoicePickerState extends State<FullScreenVoicePicker>
                           : null,
                       isDense: true,
                       contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 10),
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
                       filled: true,
-                      fillColor:
-                          theme.colorScheme.onSurface.withValues(alpha: 0.05),
+                      fillColor: theme.colorScheme.onSurface.withValues(
+                        alpha: 0.05,
+                      ),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
                         borderSide: BorderSide.none,
@@ -198,9 +205,13 @@ class _FullScreenVoicePickerState extends State<FullScreenVoicePicker>
                   isScrollable: true,
                   tabAlignment: TabAlignment.start,
                   labelStyle: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w600),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
                   unselectedLabelStyle: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w400),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w400,
+                  ),
                   labelColor: theme.colorScheme.primary,
                   unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
                   indicatorSize: TabBarIndicatorSize.label,
@@ -219,8 +230,7 @@ class _FullScreenVoicePickerState extends State<FullScreenVoicePicker>
               controller: _tabCtrl,
               children: [
                 _buildGrid(_filtered(_allItems)),
-                ...widget.groups
-                    .map((g) => _buildGrid(_filtered(g.items))),
+                ...widget.groups.map((g) => _buildGrid(_filtered(g.items))),
               ],
             ),
           ),
@@ -235,14 +245,18 @@ class _FullScreenVoicePickerState extends State<FullScreenVoicePicker>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(LucideIcons.searchX,
-                size: 48,
-                color: Theme.of(context).hintColor.withValues(alpha: 0.3)),
+            Icon(
+              LucideIcons.searchX,
+              size: 48,
+              color: Theme.of(context).hintColor.withValues(alpha: 0.3),
+            ),
             const SizedBox(height: 12),
-            Text('无匹配结果',
-                style: TextStyle(
-                    color:
-                        Theme.of(context).hintColor.withValues(alpha: 0.5))),
+            Text(
+              '无匹配结果',
+              style: TextStyle(
+                color: Theme.of(context).hintColor.withValues(alpha: 0.5),
+              ),
+            ),
           ],
         ),
       );
@@ -301,8 +315,7 @@ class _VoiceChip extends StatelessWidget {
             borderRadius: BorderRadius.circular(10),
             border: selected
                 ? Border.all(color: primaryColor, width: 1.5)
-                : Border.all(
-                    color: theme.dividerColor.withValues(alpha: 0.3)),
+                : Border.all(color: theme.dividerColor.withValues(alpha: 0.3)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -313,16 +326,20 @@ class _VoiceChip extends StatelessWidget {
                   if (selected)
                     Padding(
                       padding: const EdgeInsets.only(right: 4),
-                      child: Icon(LucideIcons.check,
-                          size: 14, color: primaryColor),
+                      child: Icon(
+                        LucideIcons.check,
+                        size: 14,
+                        color: primaryColor,
+                      ),
                     ),
                   Expanded(
                     child: Text(
                       item.label,
                       style: TextStyle(
                         fontSize: 13,
-                        fontWeight:
-                            selected ? FontWeight.w600 : FontWeight.w500,
+                        fontWeight: selected
+                            ? FontWeight.w600
+                            : FontWeight.w500,
                         color: selected
                             ? primaryColor
                             : theme.colorScheme.onSurface,
@@ -339,8 +356,9 @@ class _VoiceChip extends StatelessWidget {
                   item.subLabel,
                   style: TextStyle(
                     fontSize: 10,
-                    color: theme.colorScheme.onSurfaceVariant
-                        .withValues(alpha: 0.7),
+                    color: theme.colorScheme.onSurfaceVariant.withValues(
+                      alpha: 0.7,
+                    ),
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,

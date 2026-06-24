@@ -48,8 +48,9 @@ class TtsFloatingPlayer extends ConsumerWidget {
                       child: Text(
                         '${playback.currentChunk + 1}/${playback.totalChunks}',
                         style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.6),
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.6,
+                          ),
                         ),
                       ),
                     ),
@@ -82,7 +83,9 @@ class TtsFloatingPlayer extends ConsumerWidget {
                   _PlayerButton(
                     icon: LucideIcons.skipBack,
                     onTap: playback.currentChunk > 0
-                        ? () => ref.read(ttsControllerProvider.notifier).skipBackward()
+                        ? () => ref
+                              .read(ttsControllerProvider.notifier)
+                              .skipBackward()
                         : null,
                   ),
                   const SizedBox(width: 4),
@@ -94,7 +97,9 @@ class TtsFloatingPlayer extends ConsumerWidget {
                     onTap: isLoading
                         ? null
                         : () {
-                            final ctrl = ref.read(ttsControllerProvider.notifier);
+                            final ctrl = ref.read(
+                              ttsControllerProvider.notifier,
+                            );
                             if (isPlaying) {
                               ctrl.pause();
                             } else {
@@ -108,7 +113,9 @@ class TtsFloatingPlayer extends ConsumerWidget {
                   _PlayerButton(
                     icon: LucideIcons.skipForward,
                     onTap: playback.currentChunk + 1 < playback.totalChunks
-                        ? () => ref.read(ttsControllerProvider.notifier).skipForward()
+                        ? () => ref
+                              .read(ttsControllerProvider.notifier)
+                              .skipForward()
                         : null,
                   ),
                   const SizedBox(width: 8),
@@ -126,7 +133,8 @@ class TtsFloatingPlayer extends ConsumerWidget {
                   // Stop button.
                   _PlayerButton(
                     icon: LucideIcons.x,
-                    onTap: () => ref.read(ttsControllerProvider.notifier).stop(),
+                    onTap: () =>
+                        ref.read(ttsControllerProvider.notifier).stop(),
                   ),
                 ],
               ),
@@ -140,11 +148,12 @@ class TtsFloatingPlayer extends ConsumerWidget {
                     child: LinearProgressIndicator(
                       value: playback.totalChunks > 0
                           ? (playback.currentChunk + (isPlaying ? 0.5 : 0)) /
-                              playback.totalChunks
+                                playback.totalChunks
                           : 0,
                       minHeight: 3,
-                      backgroundColor: theme.colorScheme.onSurface
-                          .withValues(alpha: 0.1),
+                      backgroundColor: theme.colorScheme.onSurface.withValues(
+                        alpha: 0.1,
+                      ),
                     ),
                   ),
                 ),
@@ -164,11 +173,7 @@ class TtsFloatingPlayer extends ConsumerWidget {
 }
 
 class _PlayerButton extends StatelessWidget {
-  const _PlayerButton({
-    required this.icon,
-    this.onTap,
-    this.size = 20,
-  });
+  const _PlayerButton({required this.icon, this.onTap, this.size = 20});
 
   final IconData icon;
   final VoidCallback? onTap;
@@ -195,10 +200,7 @@ class _PlayerButton extends StatelessWidget {
 }
 
 class _SpeedChip extends StatelessWidget {
-  const _SpeedChip({
-    required this.speed,
-    required this.onTap,
-  });
+  const _SpeedChip({required this.speed, required this.onTap});
 
   final double speed;
   final VoidCallback onTap;

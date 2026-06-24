@@ -54,10 +54,7 @@ class SystemAsrService {
 
   /// Start listening. [localeId] e.g. "zh_CN", "en_US".
   /// [listenMode] controls partial vs final results.
-  Future<void> start({
-    String localeId = '',
-    bool partialResults = true,
-  }) async {
+  Future<void> start({String localeId = '', bool partialResults = true}) async {
     if (_speech.isListening) {
       await _speech.stop();
     }

@@ -25,6 +25,8 @@ enum TtsProviderKind {
   volcano,
   @JsonValue('mimo')
   mimo,
+  @JsonValue('qwen')
+  qwen,
 }
 
 /// A single TTS provider's configuration — API key, base URL, model, voice,
@@ -89,9 +91,20 @@ abstract class TtsProviderSetting with _$TtsProviderSetting {
     // OpenAI gpt-4o-mini-tts instructions (controls accent, tone, emotion, etc.)
     @Default('') String instructions,
     // MiMo-specific
-    @Default('') String mimoVoiceDescription, // voice description for voicedesign model
-    @Default(false) bool mimoOptimizeTextPreview, // polish text in voicedesign mode
-    @Default('') String mimoVoiceCloneAudio, // base64 audio sample for voiceclone model
+    @Default('')
+    String mimoVoiceDescription, // voice description for voicedesign model
+    @Default(false)
+    bool mimoOptimizeTextPreview, // polish text in voicedesign mode
+    @Default('')
+    String mimoVoiceCloneAudio, // base64 audio sample for voiceclone model
+    // Qwen-specific
+    @Default('Auto')
+    String qwenLanguageType, // output language: Auto, Chinese, English, etc.
+    @Default('')
+    String qwenInstructions, // natural language instruction for instruct models
+    @Default(false)
+    bool
+    qwenOptimizeInstructions, // rewrite instructions for better naturalness
   }) = _TtsProviderSetting;
 
   factory TtsProviderSetting.fromJson(Map<String, dynamic> json) =>
@@ -181,5 +194,14 @@ TtsProviderSetting defaultTtsProvider(TtsProviderKind kind) => switch (kind) {
     model: 'mimo-v2.5-tts',
     voice: 'mimo_default',
     audioFormat: 'wav',
+  ),
+  TtsProviderKind.qwen => const TtsProviderSetting(
+    id: 'qwen',
+    kind: TtsProviderKind.qwen,
+    name: 'Qwen TTS',
+    baseUrl: 'https://dashscope.aliyuncs.com/api/v1',
+    model: 'qwen3-tts-flash',
+    voice: 'Cherry',
+    qwenLanguageType: 'Auto',
   ),
 };
