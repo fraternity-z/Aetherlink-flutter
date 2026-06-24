@@ -309,8 +309,10 @@ const Map<String, List<McpToolDefinition>> kBuiltinMcpTools = {
   ],
   '@aether/fetch': [
     McpToolDefinition(
-      name: 'fetch_url_as_html',
-      description: '获取指定 URL 的网页内容，返回 HTML 格式',
+      name: 'fetch',
+      description:
+          '获取 URL 内容并转换为 Markdown 格式（便于 LLM 阅读）。'
+          '支持分块读取：通过 start_index 指定起始位置，实现大页面分段获取。',
       inputSchema: {
         'type': 'object',
         'properties': {
@@ -319,49 +321,24 @@ const Map<String, List<McpToolDefinition>> kBuiltinMcpTools = {
             'format': 'uri',
             'description': '要获取的 URL 地址',
           },
-          'headers': {
-            'type': 'object',
-            'description': '可选的 HTTP 请求头',
-            'additionalProperties': {'type': 'string'},
+          'max_length': {
+            'type': 'integer',
+            'description': '返回内容的最大字符数（默认 5000）',
+            'default': 5000,
           },
-        },
-        'required': ['url'],
-      },
-    ),
-    McpToolDefinition(
-      name: 'fetch_url_as_json',
-      description: '获取指定 URL 的内容，解析为 JSON 格式返回',
-      inputSchema: {
-        'type': 'object',
-        'properties': {
-          'url': {
-            'type': 'string',
-            'format': 'uri',
-            'description': '要获取的 URL 地址',
+          'start_index': {
+            'type': 'integer',
+            'description': '从第几个字符开始提取（默认 0），用于分块读取大页面',
+            'default': 0,
+          },
+          'raw': {
+            'type': 'boolean',
+            'description': '是否返回原始内容，不做 Markdown 转换（默认 false）',
+            'default': false,
           },
           'headers': {
             'type': 'object',
-            'description': '可选的 HTTP 请求头',
-            'additionalProperties': {'type': 'string'},
-          },
-        },
-        'required': ['url'],
-      },
-    ),
-    McpToolDefinition(
-      name: 'fetch_url_as_text',
-      description: '获取指定 URL 的内容，返回提取后的纯文本（自动去除 HTML 标签和脚本）',
-      inputSchema: {
-        'type': 'object',
-        'properties': {
-          'url': {
-            'type': 'string',
-            'format': 'uri',
-            'description': '要获取的 URL 地址',
-          },
-          'headers': {
-            'type': 'object',
-            'description': '可选的 HTTP 请求头',
+            'description': '可选的自定义 HTTP 请求头',
             'additionalProperties': {'type': 'string'},
           },
         },
@@ -372,41 +349,64 @@ const Map<String, List<McpToolDefinition>> kBuiltinMcpTools = {
   '@aether/metaso-search': [
     McpToolDefinition(
       name: 'metaso_search',
-      description: '秘塔AI搜索。通过 scope 选择范围：webpage/document/scholar/image/video/podcast',
+      description:
+          '秘塔AI搜索（metaso.cn 官方API）。'
+          '搜索范围通过 scope 指定：webpage(网页)/document(文库)/scholar(学术)/image(图片)/video(视频)/podcast(播客)',
       inputSchema: {
         'type': 'object',
         'properties': {
-          'query': {'type': 'string', 'description': '搜索关键词'},
+          'q': {'type': 'string', 'description': '搜索关键词'},
           'scope': {
             'type': 'string',
             'enum': ['webpage', 'document', 'scholar', 'image', 'video', 'podcast'],
-            'description': '搜索范围',
+            'description': '搜索范围（默认 webpage）',
             'default': 'webpage',
           },
           'size': {
-            'type': 'number',
-            'description': '返回结果数量',
+            'type': 'integer',
+            'description': '返回结果数量（1-50，默认 10）',
             'default': 10,
+          },
+          'page': {
+            'type': 'integer',
+            'description': '页码（默认 1）',
+            'default': 1,
+          },
+          'includeSummary': {
+            'type': 'boolean',
+            'description': '是否返回 AI 摘要（默认 false）',
+            'default': false,
           },
           'includeRawContent': {
             'type': 'boolean',
-            'description': '是否抓取来源原文（响应较慢）',
+            'description': '是否抓取所有来源网页原文（响应较慢，默认 false）',
+            'default': false,
+          },
+          'conciseSnippet': {
+            'type': 'boolean',
+            'description': '是否返回精简的原文匹配信息（默认 false）',
             'default': false,
           },
         },
-        'required': ['query'],
+        'required': ['q'],
       },
     ),
     McpToolDefinition(
       name: 'metaso_reader',
-      description: '提取网页正文，返回纯文本',
+      description: '根据 URL 抓取网页全文，以 Markdown 格式返回',
       inputSchema: {
         'type': 'object',
         'properties': {
           'url': {
             'type': 'string',
             'format': 'uri',
-            'description': '目标 URL',
+            'description': '目标网页 URL',
+          },
+          'format': {
+            'type': 'string',
+            'enum': ['markdown', 'text'],
+            'description': '返回格式（默认 markdown）',
+            'default': 'markdown',
           },
         },
         'required': ['url'],
@@ -414,36 +414,66 @@ const Map<String, List<McpToolDefinition>> kBuiltinMcpTools = {
     ),
     McpToolDefinition(
       name: 'metaso_chat',
-      description: '秘塔AI对话，基于实时搜索提供带引用的回答',
+      description: '秘塔AI问答。根据查询问题，基于实时搜索返回带引用的解答',
       inputSchema: {
         'type': 'object',
         'properties': {
-          'query': {'type': 'string', 'description': '问题或查询内容'},
+          'q': {'type': 'string', 'description': '查询问题'},
           'scope': {
             'type': 'string',
             'enum': ['webpage', 'document', 'scholar', 'video', 'podcast'],
-            'description': '知识范围',
+            'description': '知识范围（默认 webpage）',
             'default': 'webpage',
           },
           'model': {
             'type': 'string',
             'enum': ['fast', 'fast_thinking', 'ds-r1'],
-            'description': '模型选择',
+            'description': '模型：fast(极速)/fast_thinking(深度思考)/ds-r1(DeepSeek-R1)',
             'default': 'fast',
           },
+          'conciseSnippet': {
+            'type': 'boolean',
+            'description': '是否返回精简的原文匹配信息（默认 false）',
+            'default': false,
+          },
         },
-        'required': ['query'],
+        'required': ['q'],
       },
     ),
   ],
   '@aether/grok-search': [
     McpToolDefinition(
       name: 'web_search',
-      description: '使用 AI 模型进行联网搜索。支持多维度搜索（自动拆分复杂查询为多个子问题并行搜索）',
+      description:
+          '使用 xAI Grok 进行实时联网搜索。利用 Grok API 的原生 search_parameters '
+          '在 Web 和 X (Twitter) 上搜索最新信息并返回带引用的回答。',
       inputSchema: {
         'type': 'object',
         'properties': {
           'query': {'type': 'string', 'description': '搜索查询内容'},
+          'mode': {
+            'type': 'string',
+            'enum': ['on', 'auto'],
+            'description': '搜索模式：on(始终搜索)/auto(模型自动判断)，默认 on',
+            'default': 'on',
+          },
+          'max_search_results': {
+            'type': 'integer',
+            'description': '最大搜索结果数（默认不限制）',
+          },
+          'from_date': {
+            'type': 'string',
+            'description': '搜索起始日期（ISO-8601 YYYY-MM-DD 格式，如 2025-01-01）',
+          },
+          'to_date': {
+            'type': 'string',
+            'description': '搜索截止日期（ISO-8601 YYYY-MM-DD 格式）',
+          },
+          'sources': {
+            'type': 'array',
+            'items': {'type': 'string', 'enum': ['web', 'x', 'news']},
+            'description': '搜索数据源列表，默认 web+x',
+          },
         },
         'required': ['query'],
       },

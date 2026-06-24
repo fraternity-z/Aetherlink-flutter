@@ -737,36 +737,31 @@ int _asIntOr(Object? value, int fallback) {
   return fallback;
 }
 
-// ── Fetch ───────────────────────────────────────────────────────────────────
+// ── Fetch (Official MCP Pattern) ────────────────────────────────────────────
 
-/// `@aether/fetch` tool execution (`fetch_url_as_html` / `fetch_url_as_json` /
-/// `fetch_url_as_text`).
+/// `@aether/fetch` tool execution — follows the official MCP fetch server
+/// pattern (modelcontextprotocol/servers). Single `fetch` tool that retrieves
+/// URL content and converts HTML to Markdown for LLM consumption.
+/// Supports chunked reading via `start_index` for large pages.
 Future<McpToolResult> runFetchTool(
   String toolName,
   Map<String, Object?> args,
 ) async {
-  switch (toolName) {
-    case 'fetch_url_as_html':
-      return _fetchUrl(args, _FetchMode.html);
-    case 'fetch_url_as_json':
-      return _fetchUrl(args, _FetchMode.json);
-    case 'fetch_url_as_text':
-      return _fetchUrl(args, _FetchMode.text);
+  if (toolName != 'fetch') {
+    return McpToolResult('未知的工具: $toolName', isError: true);
   }
-  return McpToolResult('未知的工具: $toolName', isError: true);
+  return _fetchAndConvert(args);
 }
 
-enum _FetchMode { html, json, text }
-
-Future<McpToolResult> _fetchUrl(
-  Map<String, Object?> args,
-  _FetchMode mode,
-) async {
+Future<McpToolResult> _fetchAndConvert(Map<String, Object?> args) async {
   try {
     final url = (args['url'] as String?)?.trim() ?? '';
     if (url.isEmpty) {
       return const McpToolResult('URL 不能为空', isError: true);
     }
+    final maxLength = _asIntOr(args['max_length'], 5000);
+    final startIndex = _asIntOr(args['start_index'], 0);
+    final raw = args['raw'] == true;
     final customHeaders = args['headers'];
     final headers = <String, String>{};
     if (customHeaders is Map) {
@@ -776,12 +771,14 @@ Future<McpToolResult> _fetchUrl(
     }
 
     final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 15);
+      ..connectionTimeout = const Duration(seconds: 30);
     try {
       final request = await client.getUrl(Uri.parse(url));
       request.headers
         ..set('User-Agent',
-            'Mozilla/5.0 (compatible; AetherLink/1.0; +https://aetherlink.app)')
+            'ModelContextProtocol/1.0 (Fetch Tool; AetherLink)')
+        ..set('Accept',
+            'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8')
         ..set('Accept-Language', 'zh-CN,zh;q=0.9,en;q=0.8');
       for (final entry in headers.entries) {
         request.headers.set(entry.key, entry.value);
@@ -791,50 +788,180 @@ Future<McpToolResult> _fetchUrl(
 
       if (response.statusCode != 200) {
         return McpToolResult(
-          'HTTP 错误: ${response.statusCode} ${response.reasonPhrase}',
+          '获取 URL 失败: HTTP ${response.statusCode}\nURL: $url',
           isError: true,
         );
       }
 
-      switch (mode) {
-        case _FetchMode.html:
-          return McpToolResult(body);
-        case _FetchMode.json:
-          try {
-            final parsed = jsonDecode(body);
-            return McpToolResult(
-              const JsonEncoder.withIndent('  ').convert(parsed),
-            );
-          } catch (e) {
-            return McpToolResult(
-              '解析 JSON 失败: $e',
-              isError: true,
-            );
-          }
-        case _FetchMode.text:
-          final extracted = _extractHtmlContent(body);
-          final buf = StringBuffer();
-          if (extracted.title.isNotEmpty) {
-            buf.writeln('# ${extracted.title}\n');
-          }
-          buf.write(extracted.content);
-          return McpToolResult(buf.toString());
+      final contentType = response.headers.contentType?.toString() ?? '';
+      String content;
+
+      if (raw) {
+        content = body;
+      } else if (contentType.contains('json')) {
+        try {
+          final parsed = jsonDecode(body);
+          content = const JsonEncoder.withIndent('  ').convert(parsed);
+        } catch (_) {
+          content = body;
+        }
+      } else if (contentType.contains('html') || body.trimLeft().startsWith('<')) {
+        content = _htmlToMarkdown(body);
+      } else {
+        content = body;
       }
+
+      final totalLength = content.length;
+      if (startIndex >= totalLength) {
+        return McpToolResult(
+          'start_index ($startIndex) 超出内容长度 ($totalLength)\n'
+          'URL: $url',
+          isError: true,
+        );
+      }
+
+      final endIndex = (startIndex + maxLength).clamp(0, totalLength);
+      final slice = content.substring(startIndex, endIndex);
+      final hasMore = endIndex < totalLength;
+
+      final buf = StringBuffer(slice);
+      if (hasMore) {
+        buf.writeln();
+        buf.writeln();
+        buf.writeln('<content_truncated>');
+        buf.writeln('已返回字符 $startIndex-$endIndex / 共 $totalLength 字符。');
+        buf.write('如需继续阅读，请使用 start_index=$endIndex 再次调用。');
+        buf.writeln('</content_truncated>');
+      }
+
+      return McpToolResult(buf.toString());
     } finally {
       client.close();
     }
   } catch (error) {
     return McpToolResult(
-      '获取 ${args['url']} 失败: ${error is Exception ? error.toString() : '未知错误'}',
+      '获取 URL 失败: ${error is Exception ? error.toString() : '未知错误'}\n'
+      'URL: ${args['url']}',
       isError: true,
     );
   }
 }
 
-// ── Metaso Search ───────────────────────────────────────────────────────────
+/// Convert HTML to simplified Markdown — a lightweight port of the
+/// readability + markdownify approach used by the official MCP fetch server.
+String _htmlToMarkdown(String html) {
+  final titleMatch = RegExp(
+    r'<title[^>]*>([\s\S]*?)</title>',
+    caseSensitive: false,
+  ).firstMatch(html);
+  final title = titleMatch != null
+      ? _decodeHtmlEntities(titleMatch.group(1)!.trim())
+      : '';
 
-/// `@aether/metaso-search` tool execution (`metaso_search` / `metaso_reader` /
-/// `metaso_chat`).
+  var content = html;
+  // Remove non-content elements
+  content = content.replaceAll(
+    RegExp(
+      r'<(script|style|nav|header|footer|aside|iframe|noscript|svg)[^>]*>[\s\S]*?</\1>',
+      caseSensitive: false,
+    ),
+    '',
+  );
+  content = content.replaceAll(RegExp(r'<!--[\s\S]*?-->'), '');
+
+  // Convert heading tags to Markdown
+  content = content.replaceAllMapped(
+    RegExp(r'<h([1-6])[^>]*>([\s\S]*?)</h\1>', caseSensitive: false),
+    (m) {
+      final level = int.parse(m.group(1)!);
+      final text = m.group(2)!.replaceAll(RegExp(r'<[^>]+>'), '').trim();
+      return '\n${'#' * level} $text\n';
+    },
+  );
+
+  // Convert links to Markdown
+  content = content.replaceAllMapped(
+    RegExp(r'<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)</a>', caseSensitive: false),
+    (m) {
+      final href = m.group(1)!;
+      final text = m.group(2)!.replaceAll(RegExp(r'<[^>]+>'), '').trim();
+      if (text.isEmpty) return '';
+      return '[$text]($href)';
+    },
+  );
+
+  // Convert images to Markdown
+  content = content.replaceAllMapped(
+    RegExp(r'<img[^>]*src="([^"]*)"[^>]*/?>',caseSensitive: false),
+    (m) {
+      final src = m.group(1)!;
+      final altMatch = RegExp(r'alt="([^"]*)"').firstMatch(m.group(0)!);
+      final alt = altMatch?.group(1) ?? '';
+      return '![${alt.isEmpty ? 'image' : alt}]($src)';
+    },
+  );
+
+  // Convert list items
+  content = content.replaceAllMapped(
+    RegExp(r'<li[^>]*>([\s\S]*?)</li>', caseSensitive: false),
+    (m) => '\n- ${m.group(1)!.replaceAll(RegExp(r'<[^>]+>'), '').trim()}',
+  );
+
+  // Convert <br> to newline
+  content = content.replaceAll(
+    RegExp(r'<br\s*/?>',caseSensitive: false),
+    '\n',
+  );
+
+  // Convert <p> to paragraphs
+  content = content.replaceAllMapped(
+    RegExp(r'<p[^>]*>([\s\S]*?)</p>', caseSensitive: false),
+    (m) => '\n\n${m.group(1)!.replaceAll(RegExp(r'<[^>]+>'), '').trim()}\n',
+  );
+
+  // Convert bold/strong
+  content = content.replaceAllMapped(
+    RegExp(r'<(strong|b)[^>]*>([\s\S]*?)</\1>', caseSensitive: false),
+    (m) => '**${m.group(2)!.replaceAll(RegExp(r'<[^>]+>'), '').trim()}**',
+  );
+
+  // Convert italic/em
+  content = content.replaceAllMapped(
+    RegExp(r'<(em|i)[^>]*>([\s\S]*?)</\1>', caseSensitive: false),
+    (m) => '*${m.group(2)!.replaceAll(RegExp(r'<[^>]+>'), '').trim()}*',
+  );
+
+  // Convert code blocks
+  content = content.replaceAllMapped(
+    RegExp(r'<pre[^>]*><code[^>]*>([\s\S]*?)</code></pre>', caseSensitive: false),
+    (m) => '\n```\n${_decodeHtmlEntities(m.group(1)!)}\n```\n',
+  );
+  content = content.replaceAllMapped(
+    RegExp(r'<code[^>]*>([\s\S]*?)</code>', caseSensitive: false),
+    (m) => '`${_decodeHtmlEntities(m.group(1)!)}`',
+  );
+
+  // Strip remaining tags
+  content = content.replaceAll(RegExp(r'<[^>]+>'), '');
+  content = _decodeHtmlEntities(content);
+
+  // Clean up whitespace
+  content = content
+      .split('\n')
+      .map((line) => line.trim())
+      .join('\n');
+  content = content.replaceAll(RegExp(r'\n{3,}'), '\n\n');
+
+  final buf = StringBuffer();
+  if (title.isNotEmpty) buf.writeln('# $title\n');
+  buf.write(content.trim());
+  return buf.toString();
+}
+
+// ── Metaso Search (秘塔AI搜索 Official API) ─────────────────────────────────
+
+/// `@aether/metaso-search` tool execution — uses the official Metaso API
+/// (metaso.cn/api/v1/*). Docs: https://metaso.cn/search-api/playground
 Future<McpToolResult> runMetasoTool(
   String toolName,
   Map<String, Object?> args, {
@@ -843,11 +970,12 @@ Future<McpToolResult> runMetasoTool(
   final apiKey = env?['METASO_API_KEY'] ?? '';
   if (apiKey.isEmpty) {
     return const McpToolResult(
-      '未配置秘塔AI搜索 API Key。\n\n'
-      '配置方法：\n'
-      '1. 访问秘塔AI开放平台: https://metaso.cn/open-app\n'
-      '2. 登录并申请 API Key\n'
-      '3. 在 MCP 服务器环境变量中设置 METASO_API_KEY',
+      '未配置 METASO_API_KEY 环境变量。\n\n'
+      '获取方法：\n'
+      '1. 访问 https://metaso.cn/search-api/api-keys\n'
+      '2. 登录并创建 API Key（格式 mk-xxxx）\n'
+      '3. 在 MCP 服务器环境变量中设置 METASO_API_KEY\n\n'
+      '定价：0.03元/次查询',
       isError: true,
     );
   }
@@ -867,21 +995,25 @@ Future<McpToolResult> _metasoSearch(
   String apiKey,
 ) async {
   try {
-    final query = (args['query'] as String?)?.trim() ?? '';
+    final query = (args['q'] as String?)?.trim() ?? '';
     if (query.isEmpty) {
-      return const McpToolResult('搜索关键词不能为空', isError: true);
+      return const McpToolResult('搜索关键词 (q) 不能为空', isError: true);
     }
     final scope = (args['scope'] as String?) ?? 'webpage';
     final size = _asIntOr(args['size'], 10);
+    final page = _asIntOr(args['page'], 1);
+    final includeSummary = args['includeSummary'] == true;
     final includeRawContent = args['includeRawContent'] == true;
+    final conciseSnippet = args['conciseSnippet'] == true;
 
     final requestBody = jsonEncode({
       'q': query,
       'scope': scope,
-      'includeSummary': false,
-      'size': '$size',
+      'size': size,
+      'page': page,
+      'includeSummary': includeSummary,
       'includeRawContent': includeRawContent,
-      'conciseSnippet': false,
+      'conciseSnippet': conciseSnippet,
     });
 
     final client = HttpClient()
@@ -900,7 +1032,7 @@ Future<McpToolResult> _metasoSearch(
 
       if (response.statusCode != 200) {
         return McpToolResult(
-          '秘塔AI搜索请求失败 (${response.statusCode}): $body',
+          '秘塔搜索请求失败 (HTTP ${response.statusCode}): $body',
           isError: true,
         );
       }
@@ -908,15 +1040,14 @@ Future<McpToolResult> _metasoSearch(
       final data = jsonDecode(body) as Map<String, Object?>;
       final webpages = (data['webpages'] as List?) ?? [];
       final total = data['total'] ?? webpages.length;
+      final credits = data['credits'];
 
       final buf = StringBuffer();
       buf.writeln('## 秘塔AI搜索结果\n');
       buf.writeln('**查询**: $query');
-      buf.writeln('**范围**: $scope');
-      buf.writeln('**返回结果数**: ${webpages.length} / $total');
-      if (data['credits'] != null) {
-        buf.writeln('**消耗积分**: ${data['credits']}');
-      }
+      buf.writeln('**范围**: $scope | **页码**: $page');
+      buf.writeln('**结果数**: ${webpages.length} / $total');
+      if (credits != null) buf.writeln('**积分消耗**: $credits');
       buf.writeln('\n---\n');
 
       if (webpages.isNotEmpty) {
@@ -924,12 +1055,15 @@ Future<McpToolResult> _metasoSearch(
           final item = webpages[i];
           if (item is! Map) continue;
           buf.writeln('### ${i + 1}. ${item['title'] ?? '无标题'}\n');
-          if (item['link'] != null) buf.writeln('**链接**: ${item['link']}\n');
-          if (item['snippet'] != null) {
-            buf.writeln('**摘要**: ${item['snippet']}\n');
-          }
+          if (item['link'] != null) buf.writeln('**链接**: ${item['link']}');
+          if (item['snippet'] != null) buf.writeln('**摘要**: ${item['snippet']}');
+          if (item['summary'] != null) buf.writeln('**AI摘要**: ${item['summary']}');
           if (includeRawContent && item['rawContent'] != null) {
-            buf.writeln('**原文**:\n```\n${item['rawContent']}\n```\n');
+            final rawContent = '${item['rawContent']}';
+            final truncated = rawContent.length > 500
+                ? '${rawContent.substring(0, 500)}...'
+                : rawContent;
+            buf.writeln('**原文**: $truncated');
           }
           if (item['score'] != null) buf.writeln('**相关度**: ${item['score']}');
           if (item['date'] != null) buf.writeln('**日期**: ${item['date']}');
@@ -942,7 +1076,6 @@ Future<McpToolResult> _metasoSearch(
         buf.writeln('未找到相关结果\n');
       }
 
-      buf.write('*数据来源: 秘塔AI搜索 (metaso.cn)*');
       return McpToolResult(buf.toString());
     } finally {
       client.close();
@@ -964,8 +1097,12 @@ Future<McpToolResult> _metasoReader(
     if (url.isEmpty) {
       return const McpToolResult('URL 不能为空', isError: true);
     }
+    final format = (args['format'] as String?) ?? 'markdown';
 
-    final requestBody = jsonEncode({'url': url});
+    final requestBody = jsonEncode({
+      'url': url,
+      'format': format,
+    });
 
     final client = HttpClient()
       ..connectionTimeout = const Duration(seconds: 30);
@@ -975,7 +1112,7 @@ Future<McpToolResult> _metasoReader(
       );
       request.headers
         ..set('Content-Type', 'application/json')
-        ..set('Accept', 'text/plain')
+        ..set('Accept', format == 'markdown' ? 'text/markdown' : 'text/plain')
         ..set('Authorization', 'Bearer $apiKey');
       request.write(requestBody);
       final response = await request.close();
@@ -983,25 +1120,19 @@ Future<McpToolResult> _metasoReader(
 
       if (response.statusCode != 200) {
         return McpToolResult(
-          '秘塔AI阅读器请求失败 (${response.statusCode}): $body',
+          '秘塔阅读器请求失败 (HTTP ${response.statusCode}): $body',
           isError: true,
         );
       }
 
-      final buf = StringBuffer();
-      buf.writeln('## 秘塔AI阅读器结果\n');
-      buf.writeln('**源URL**: $url\n');
-      buf.writeln('---\n');
-      buf.writeln(body);
-      buf.writeln('\n---\n');
-      buf.write('*数据来源: 秘塔AI阅读器 (metaso.cn)*');
-      return McpToolResult(buf.toString());
+      return McpToolResult(body);
     } finally {
       client.close();
     }
   } catch (error) {
     return McpToolResult(
-      '秘塔AI阅读器失败: ${error is Exception ? error.toString() : '未知错误'}',
+      '秘塔阅读器失败: ${error is Exception ? error.toString() : '未知错误'}\n'
+      'URL: ${args['url']}',
       isError: true,
     );
   }
@@ -1012,17 +1143,20 @@ Future<McpToolResult> _metasoChat(
   String apiKey,
 ) async {
   try {
-    final query = (args['query'] as String?)?.trim() ?? '';
+    final query = (args['q'] as String?)?.trim() ?? '';
     if (query.isEmpty) {
-      return const McpToolResult('查询内容不能为空', isError: true);
+      return const McpToolResult('查询问题 (q) 不能为空', isError: true);
     }
     final scope = (args['scope'] as String?) ?? 'webpage';
     final model = (args['model'] as String?) ?? 'fast';
+    final conciseSnippet = args['conciseSnippet'] == true;
 
     final requestBody = jsonEncode({
       'model': model,
       'scope': scope,
       'stream': false,
+      'format': 'chat_completions',
+      'conciseSnippet': conciseSnippet,
       'messages': [
         {'role': 'user', 'content': query},
       ],
@@ -1044,76 +1178,57 @@ Future<McpToolResult> _metasoChat(
 
       if (response.statusCode != 200) {
         return McpToolResult(
-          '秘塔AI对话请求失败 (${response.statusCode}): $body',
+          '秘塔问答请求失败 (HTTP ${response.statusCode}): $body',
           isError: true,
         );
       }
 
       final data = jsonDecode(body) as Map<String, Object?>;
       final choices = (data['choices'] as List?) ?? [];
-      final message = choices.isNotEmpty
-          ? (choices[0] as Map<String, Object?>)['message'] as Map<String, Object?>?
-          : null;
-      final answer = (message?['content'] as String?) ?? '未获取到回答';
-      final citations = (message?['citations'] as List?) ?? [];
+      if (choices.isEmpty) {
+        return const McpToolResult('秘塔问答未返回结果', isError: true);
+      }
+      final firstChoice = choices[0] as Map<String, Object?>;
+      final message = firstChoice['message'] as Map<String, Object?>?;
+      final answer = (message?['content'] as String?) ?? '';
+      final citations = (data['citations'] as List?) ?? [];
 
       final buf = StringBuffer();
-      buf.writeln('## 秘塔AI智能回答\n');
-      buf.writeln('**问题**: $query');
-      buf.writeln('**模型**: $model');
-      buf.writeln('**知识范围**: $scope\n');
-      buf.writeln('---\n');
       buf.writeln(answer);
-      buf.writeln();
 
       if (citations.isNotEmpty) {
-        buf.writeln('\n## 引用来源\n');
+        buf.writeln('\n\n---\n**引用来源**:\n');
         for (var i = 0; i < citations.length; i++) {
           final cite = citations[i];
           if (cite is! Map) continue;
-          buf.writeln('${i + 1}. **${cite['title'] ?? '未知标题'}**');
-          if (cite['link'] != null) buf.writeln('   链接: ${cite['link']}');
-          if (cite['date'] != null) buf.writeln('   日期: ${cite['date']}');
-          if (cite['authors'] is List &&
-              (cite['authors'] as List).isNotEmpty) {
-            buf.writeln('   作者: ${(cite['authors'] as List).join(', ')}');
+          final title = cite['title'] ?? '来源 ${i + 1}';
+          final link = cite['link'] ?? '';
+          if (link.toString().isNotEmpty) {
+            buf.writeln('${i + 1}. [$title]($link)');
+          } else {
+            buf.writeln('${i + 1}. $title');
           }
-          buf.writeln();
         }
       }
 
-      buf.write('*数据来源: 秘塔AI (metaso.cn)*');
       return McpToolResult(buf.toString());
     } finally {
       client.close();
     }
   } catch (error) {
     return McpToolResult(
-      '秘塔AI对话失败: ${error is Exception ? error.toString() : '未知错误'}',
+      '秘塔问答失败: ${error is Exception ? error.toString() : '未知错误'}',
       isError: true,
     );
   }
 }
 
-// ── Grok Search (AI联网搜索) ────────────────────────────────────────────────
+// ── Grok Search (xAI Official API with search_parameters) ──────────────────
 
-/// Default system prompt for AI search.
-const String _kGrokSearchSystemPrompt = '''你是一个专业的搜索助手,擅长联网搜索并提供准确、详细的答案。
-
-当前时间: {current_time}
-
-搜索策略:
-1. 优先使用最新、权威的信息源
-2. 对于时间敏感的查询,明确标注信息的时间
-3. 提供多个来源的信息进行交叉验证
-4. 对于技术问题,优先参考官方文档和最新版本
-
-输出要求:
-- 直接回答用户问题
-- 时间相关信息必须基于上述当前时间判断''';
-
-/// `@aether/grok-search` tool execution (`web_search`) — calls any
-/// OpenAI-compatible API with web search capability (e.g. Grok, Perplexity).
+/// `@aether/grok-search` tool execution (`web_search`) — uses xAI's native
+/// `search_parameters` in `/v1/chat/completions` for real-time web search.
+/// Docs: https://docs.x.ai/developers/rest-api-reference/inference/chat
+/// and: https://docs.x.ai/developers/tools/web-search
 Future<McpToolResult> runGrokSearchTool(
   String toolName,
   Map<String, Object?> args, {
@@ -1122,273 +1237,141 @@ Future<McpToolResult> runGrokSearchTool(
   if (toolName != 'web_search') {
     return McpToolResult('未知的工具: $toolName', isError: true);
   }
-  final apiUrl = env?['AI_API_URL'] ?? '';
-  final apiKey = env?['AI_API_KEY'] ?? '';
-  final modelId = env?['AI_MODEL_ID'] ?? '';
 
-  if (apiUrl.isEmpty || apiKey.isEmpty || modelId.isEmpty) {
+  final apiKey = env?['XAI_API_KEY'] ?? env?['AI_API_KEY'] ?? '';
+  final apiUrl = env?['XAI_API_URL'] ?? env?['AI_API_URL'] ?? 'https://api.x.ai';
+  final modelId = env?['XAI_MODEL_ID'] ?? env?['AI_MODEL_ID'] ?? 'grok-3';
+
+  if (apiKey.isEmpty) {
     return const McpToolResult(
-      '未完整配置 AI Search。请在 MCP 服务器环境变量中配置：\n'
-      '  AI_API_URL — API 地址（如 https://api.x.ai/v1）\n'
-      '  AI_API_KEY — API 密钥\n'
-      '  AI_MODEL_ID — 搜索模型 ID（如 grok-3）',
+      '未配置 xAI API Key。请在 MCP 服务器环境变量中配置：\n\n'
+      '  XAI_API_KEY — xAI API 密钥（https://console.x.ai 获取）\n'
+      '  XAI_MODEL_ID — 模型 ID（默认 grok-3，推荐 grok-4.3）\n'
+      '  XAI_API_URL — API 地址（默认 https://api.x.ai）\n\n'
+      '也可使用兼容变量名：AI_API_KEY / AI_MODEL_ID / AI_API_URL',
       isError: true,
     );
   }
 
   final query = (args['query'] as String?)?.trim() ?? '';
   if (query.isEmpty) {
-    return const McpToolResult('搜索查询内容不能为空', isError: true);
+    return const McpToolResult('搜索查询内容 (query) 不能为空', isError: true);
   }
 
-  final timeout = int.tryParse(env?['AI_TIMEOUT'] ?? '60') ?? 60;
-  final filterThinking =
-      (env?['AI_FILTER_THINKING'] ?? 'true').toLowerCase() == 'true';
-  final retryCount = int.tryParse(env?['AI_RETRY_COUNT'] ?? '1') ?? 1;
-  final maxQueryPlan = int.tryParse(env?['AI_MAX_QUERY_PLAN'] ?? '1') ?? 1;
-  final systemPromptTemplate =
-      env?['AI_SYSTEM_PROMPT']?.isNotEmpty == true
-          ? env!['AI_SYSTEM_PROMPT']!
-          : _kGrokSearchSystemPrompt;
+  // Build search_parameters from tool args (xAI native feature)
+  final searchMode = (args['mode'] as String?) ?? 'on';
+  final searchParams = <String, Object?>{
+    'mode': searchMode,
+    'return_citations': true,
+  };
+  if (args['max_search_results'] != null) {
+    searchParams['max_search_results'] = _asIntOr(args['max_search_results'], 10);
+  }
+  if (args['from_date'] is String) {
+    searchParams['from_date'] = args['from_date'];
+  }
+  if (args['to_date'] is String) {
+    searchParams['to_date'] = args['to_date'];
+  }
+  if (args['sources'] is List) {
+    searchParams['sources'] = args['sources'];
+  }
+
+  final timeout = int.tryParse(env?['XAI_TIMEOUT'] ?? env?['AI_TIMEOUT'] ?? '60') ?? 60;
 
   try {
-    String result;
-    if (maxQueryPlan > 1) {
-      result = await _grokMultiSearch(
-        query: query,
-        apiUrl: apiUrl,
-        apiKey: apiKey,
-        modelId: modelId,
-        analysisModelId: env?['AI_ANALYSIS_MODEL_ID'] ?? '',
-        systemPromptTemplate: systemPromptTemplate,
-        timeout: timeout,
-        filterThinking: filterThinking,
-        retryCount: retryCount,
-        maxQueryPlan: maxQueryPlan,
-      );
-    } else {
-      result = await _grokCallApi(
-        query: query,
-        apiUrl: apiUrl,
-        apiKey: apiKey,
-        modelId: modelId,
-        systemPromptTemplate: systemPromptTemplate,
-        timeout: timeout,
-        filterThinking: filterThinking,
-        retryCount: retryCount,
-      );
+    // Build endpoint
+    var endpoint = apiUrl;
+    if (!endpoint.endsWith('/v1/chat/completions')) {
+      if (endpoint.endsWith('/')) {
+        endpoint += 'v1/chat/completions';
+      } else {
+        endpoint += '/v1/chat/completions';
+      }
     }
-    return McpToolResult(result);
+
+    final requestBody = jsonEncode({
+      'model': modelId,
+      'search_parameters': searchParams,
+      'messages': [
+        {'role': 'user', 'content': query},
+      ],
+      'stream': false,
+    });
+
+    final client = HttpClient()
+      ..connectionTimeout = Duration(seconds: timeout);
+    try {
+      final request = await client.postUrl(Uri.parse(endpoint));
+      request.headers
+        ..set('Content-Type', 'application/json')
+        ..set('Authorization', 'Bearer $apiKey');
+      request.write(requestBody);
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+
+      if (response.statusCode != 200) {
+        final hint = switch (response.statusCode) {
+          401 => '认证失败，请检查 XAI_API_KEY 是否正确',
+          403 => 'API 权限不足，请确认 Key 有搜索权限',
+          429 => '请求过于频繁，请稍后重试',
+          _ => 'xAI API 请求失败 (HTTP ${response.statusCode})',
+        };
+        return McpToolResult('$hint\n\n响应: $body', isError: true);
+      }
+
+      final data = jsonDecode(body) as Map<String, Object?>;
+      final choices = (data['choices'] as List?) ?? [];
+      if (choices.isEmpty) {
+        return const McpToolResult('xAI 未返回搜索结果', isError: true);
+      }
+
+      final firstChoice = choices[0] as Map<String, Object?>;
+      final message = firstChoice['message'] as Map<String, Object?>?;
+      final content = (message?['content'] as String?) ?? '';
+
+      // Extract citations if present
+      final citations = (data['citations'] as List?) ?? [];
+
+      final buf = StringBuffer();
+      // Filter thinking blocks if present
+      buf.write(_filterThinkingContent(content));
+
+      if (citations.isNotEmpty) {
+        buf.writeln('\n\n---\n**搜索引用来源**:\n');
+        for (var i = 0; i < citations.length; i++) {
+          final cite = citations[i];
+          if (cite is String) {
+            buf.writeln('${i + 1}. $cite');
+          } else if (cite is Map) {
+            final title = cite['title'] ?? '来源 ${i + 1}';
+            final url = cite['url'] ?? cite['link'] ?? '';
+            if (url.toString().isNotEmpty) {
+              buf.writeln('${i + 1}. [$title]($url)');
+            } else {
+              buf.writeln('${i + 1}. $title');
+            }
+          }
+        }
+      }
+
+      final result = buf.toString().trim();
+      if (result.isEmpty) {
+        return const McpToolResult('xAI 搜索未返回有效内容', isError: true);
+      }
+      return McpToolResult(result);
+    } finally {
+      client.close();
+    }
   } catch (error) {
     return McpToolResult(
-      'AI 搜索失败: ${error is Exception ? error.toString() : '未知错误'}\n\n'
-      '配置提示：\n'
-      '  AI_API_URL — OpenAI 兼容 API 地址\n'
-      '  AI_API_KEY — API 密钥\n'
-      '  AI_MODEL_ID — 具有联网搜索能力的模型 ID\n'
-      '  AI_MAX_QUERY_PLAN — 多维度搜索子查询数量（默认 1）',
+      'xAI 搜索失败: ${error is Exception ? error.toString() : '未知错误'}\n\n'
+      '请确认配置：\n'
+      '  XAI_API_KEY — xAI API 密钥\n'
+      '  XAI_MODEL_ID — 当前: $modelId\n'
+      '  XAI_API_URL — 当前: $apiUrl',
       isError: true,
     );
-  }
-}
-
-/// Multi-dimension search: split query into sub-queries and search in parallel.
-Future<String> _grokMultiSearch({
-  required String query,
-  required String apiUrl,
-  required String apiKey,
-  required String modelId,
-  required String analysisModelId,
-  required String systemPromptTemplate,
-  required int timeout,
-  required bool filterThinking,
-  required int retryCount,
-  required int maxQueryPlan,
-}) async {
-  // 1. Split query using AI
-  final splitModelId =
-      analysisModelId.isNotEmpty ? analysisModelId : modelId;
-  final splitPrompt =
-      '将查询拆分成 $maxQueryPlan 个子问题，返回 JSON 数组。\n\n'
-      '查询: $query\n\n'
-      '只返回 JSON 数组，格式: ["子问题1", "子问题2", "子问题3"]';
-  final splitSystemPrompt =
-      '你是查询拆分助手。只返回 JSON 数组，不要任何解释、标记或其他文本。直接输出 JSON 数组。';
-
-  final splitResponse = await _grokSingleRequest(
-    query: splitPrompt,
-    systemPrompt: splitSystemPrompt,
-    apiUrl: apiUrl,
-    apiKey: apiKey,
-    modelId: splitModelId,
-    timeout: timeout,
-  );
-
-  // Parse sub-queries
-  final cleaned = splitResponse
-      .trim()
-      .replaceAll(RegExp(r'^```json\s*', caseSensitive: false), '')
-      .replaceAll(RegExp(r'^```\s*', caseSensitive: false), '')
-      .replaceAll(RegExp(r'```\s*$', caseSensitive: false), '')
-      .trim();
-
-  List<String> subQueries;
-  try {
-    subQueries = (jsonDecode(cleaned) as List).cast<String>();
-  } catch (_) {
-    throw FormatException('解析子查询失败，响应内容: $cleaned');
-  }
-  if (subQueries.isEmpty) {
-    throw const FormatException('未能拆分出任何子查询');
-  }
-
-  // 2. Execute sub-queries in parallel
-  final futures = subQueries.map((sq) => _grokCallApi(
-    query: sq,
-    apiUrl: apiUrl,
-    apiKey: apiKey,
-    modelId: modelId,
-    systemPromptTemplate: systemPromptTemplate,
-    timeout: timeout,
-    filterThinking: filterThinking,
-    retryCount: retryCount,
-  ));
-  final results = await Future.wait(
-    futures.map((f) => f.then<({String? value, Object? error})>(
-      (v) => (value: v, error: null),
-      onError: (e) => (value: null, error: e),
-    )),
-  );
-
-  // 3. Assemble results
-  final buf = StringBuffer();
-  for (var i = 0; i < results.length; i++) {
-    final subQuestion = i < subQueries.length ? subQueries[i] : '未知';
-    final r = results[i];
-    if (r.value != null) {
-      buf.writeln('## 子查询 ${i + 1} 结果\n');
-      buf.writeln('**子问题**: $subQuestion\n');
-      buf.writeln(r.value);
-      buf.writeln();
-    } else {
-      buf.writeln('## 子查询 ${i + 1} 失败\n');
-      buf.writeln('**子问题**: $subQuestion\n');
-      buf.writeln('**错误**: ${r.error}\n');
-    }
-  }
-
-  final output = buf.toString().trim();
-  if (output.isEmpty) throw Exception('所有子查询都失败了');
-  return output;
-}
-
-/// Call API with default system prompt and retry logic.
-Future<String> _grokCallApi({
-  required String query,
-  required String apiUrl,
-  required String apiKey,
-  required String modelId,
-  required String systemPromptTemplate,
-  required int timeout,
-  required bool filterThinking,
-  required int retryCount,
-}) async {
-  final now = DateTime.now();
-  final currentTime =
-      '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} '
-      '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
-  final systemPrompt = systemPromptTemplate.replaceAll('{current_time}', currentTime);
-
-  const retryableCodes = {408, 429, 500, 502, 503, 504};
-  Object? lastError;
-
-  for (var attempt = 0; attempt <= retryCount; attempt++) {
-    try {
-      final result = await _grokSingleRequest(
-        query: query,
-        systemPrompt: systemPrompt,
-        apiUrl: apiUrl,
-        apiKey: apiKey,
-        modelId: modelId,
-        timeout: timeout,
-      );
-      if (filterThinking) return _filterThinkingContent(result);
-      return result;
-    } catch (e) {
-      lastError = e;
-      final msg = e.toString();
-      final codeMatch = RegExp(r'\((\d+)\)').firstMatch(msg);
-      final statusCode = codeMatch != null ? int.tryParse(codeMatch.group(1)!) ?? 0 : 0;
-      if (attempt < retryCount &&
-          (retryableCodes.contains(statusCode) || statusCode == 0)) {
-        await Future<void>.delayed(const Duration(seconds: 1));
-        continue;
-      }
-      rethrow;
-    }
-  }
-  throw lastError ?? Exception('未知错误');
-}
-
-/// Single API request to OpenAI-compatible endpoint.
-Future<String> _grokSingleRequest({
-  required String query,
-  required String systemPrompt,
-  required String apiUrl,
-  required String apiKey,
-  required String modelId,
-  required int timeout,
-}) async {
-  var endpoint = apiUrl;
-  if (!endpoint.endsWith('/v1/chat/completions')) {
-    if (endpoint.endsWith('/')) {
-      endpoint += 'v1/chat/completions';
-    } else {
-      endpoint += '/v1/chat/completions';
-    }
-  }
-
-  final requestBody = jsonEncode({
-    'model': modelId,
-    'messages': [
-      {'role': 'system', 'content': systemPrompt},
-      {'role': 'user', 'content': query},
-    ],
-    'stream': false,
-  });
-
-  final client = HttpClient()
-    ..connectionTimeout = Duration(seconds: timeout);
-  try {
-    final request = await client.postUrl(Uri.parse(endpoint));
-    request.headers
-      ..set('Content-Type', 'application/json')
-      ..set('Authorization', 'Bearer $apiKey');
-    request.write(requestBody);
-    final response = await request.close();
-    final body = await response.transform(utf8.decoder).join();
-
-    if (response.statusCode != 200) {
-      final hint = switch (response.statusCode) {
-        401 => '认证失败，请检查 AI_API_KEY 是否正确',
-        429 => '请求过于频繁，建议稍后重试',
-        _ => 'API 请求失败 (${response.statusCode}): $body',
-      };
-      throw Exception(hint);
-    }
-
-    final data = jsonDecode(body) as Map<String, Object?>;
-    final choices = (data['choices'] as List?) ?? [];
-    if (choices.isEmpty) throw Exception('API 响应格式错误：未获取到回答内容');
-    final message =
-        (choices[0] as Map<String, Object?>)['message'] as Map<String, Object?>?;
-    final content = message?['content'] as String?;
-    if (content == null || content.isEmpty) {
-      throw Exception('API 响应格式错误：未获取到回答内容');
-    }
-    return content;
-  } finally {
-    client.close();
   }
 }
 
