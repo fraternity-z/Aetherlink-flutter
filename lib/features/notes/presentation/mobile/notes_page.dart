@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import 'package:aetherlink_flutter/app/di/notes_ai_access.dart';
 import 'package:aetherlink_flutter/app/router/app_router.dart';
 import 'package:aetherlink_flutter/features/notes/application/notes_controller.dart';
 import 'package:aetherlink_flutter/features/notes/application/notes_search_controller.dart';
@@ -263,6 +264,16 @@ class NotesPage extends ConsumerWidget {
                   controller.toggleStar(node);
                 },
               ),
+            if (!node.isDirectory)
+              ListTile(
+                leading: const Icon(LucideIcons.sparkles),
+                title: const Text('AI 命名'),
+                subtitle: const Text('用辅助模型根据内容生成标题'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _aiRename(context, ref, node);
+                },
+              ),
             ListTile(
               leading: const Icon(LucideIcons.pencil),
               title: const Text('重命名'),
@@ -311,6 +322,39 @@ class NotesPage extends ConsumerWidget {
       await ref.read(notesControllerProvider.notifier).rename(node, name);
     } catch (e) {
       if (context.mounted) _toast(context, '重命名失败：$e');
+    }
+  }
+
+  Future<void> _aiRename(
+    BuildContext context,
+    WidgetRef ref,
+    NoteNode node,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('正在生成标题…'),
+          duration: Duration(seconds: 30),
+        ),
+      );
+    try {
+      final content = await ref
+          .read(notesFileStoreProvider)
+          .read(node.relativePath);
+      final title = await ref.read(notesAiServiceProvider).generateTitle(content);
+      messenger.clearSnackBars();
+      if (title == null || title.isEmpty) {
+        if (context.mounted) {
+          _toast(context, '未能生成标题（请检查辅助模型/标题模型配置）');
+        }
+        return;
+      }
+      await ref.read(notesControllerProvider.notifier).rename(node, title);
+      if (context.mounted) _toast(context, '已重命名为「$title」');
+    } catch (e) {
+      messenger.clearSnackBars();
+      if (context.mounted) _toast(context, 'AI 命名失败：$e');
     }
   }
 
