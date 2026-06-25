@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -154,31 +155,34 @@ class _EditModelPageState extends ConsumerState<EditModelPage> {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.fromLTRB(
+          16,
+          12,
+          16,
+          16 + MediaQuery.paddingOf(context).bottom,
+        ),
         children: [
           _AvatarCard(theme: theme),
-          const SizedBox(height: 24),
+          const SizedBox(height: 14),
           ModelFormField(
             label: EditModelPage._nameLabel,
             controller: _nameController,
             onChanged: (_) => setState(() {}),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 14),
           _ProviderField(name: provider.name),
-          const SizedBox(height: 24),
-          ModelFormField(
-            label: EditModelPage._modelIdLabel,
-            helper: EditModelPage._modelIdHelper,
+          const SizedBox(height: 14),
+          _ModelIdField(
             controller: _modelIdController,
             onChanged: (_) => setState(() {}),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 14),
           _ParameterScopeField(
             value: _parameterScope,
             modelId: _modelIdController.text.trim(),
             onChanged: (v) => setState(() => _parameterScope = v),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 14),
           _ModelTypeSection(theme: theme),
         ],
       ),
@@ -186,8 +190,7 @@ class _EditModelPageState extends ConsumerState<EditModelPage> {
   }
 }
 
-/// The avatar card: a circular fallback initial, the 模型头像 title/description
-/// and a primary photo button (disabled — avatar upload needs the data layer).
+/// Compact avatar row with 36px circle + title inline.
 class _AvatarCard extends StatelessWidget {
   const _AvatarCard({required this.theme});
 
@@ -196,12 +199,12 @@ class _AvatarCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ModelSettingsCard(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       child: Row(
         children: [
           Container(
-            width: 48,
-            height: 48,
+            width: 36,
+            height: 36,
             alignment: Alignment.center,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
@@ -209,13 +212,13 @@ class _AvatarCard extends StatelessWidget {
             ),
             child: Text(
               'M',
-              style: theme.textTheme.titleMedium?.copyWith(
+              style: theme.textTheme.titleSmall?.copyWith(
                 fontWeight: FontWeight.w600,
                 color: theme.colorScheme.primary,
               ),
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -223,35 +226,30 @@ class _AvatarCard extends StatelessWidget {
               children: [
                 Text(
                   EditModelPage._avatarTitle,
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    fontSize: 16,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontSize: 14,
                     fontWeight: FontWeight.w600,
                     color: theme.colorScheme.onSurface,
                   ),
                 ),
-                const SizedBox(height: 2),
                 Text(
                   EditModelPage._avatarDesc,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontSize: 14,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontSize: 12,
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
               ],
             ),
           ),
-          const IconButton(
-            icon: Icon(LucideIcons.image, size: 20),
-            onPressed: null,
-          ),
+          Icon(LucideIcons.image, size: 18, color: theme.disabledColor),
         ],
       ),
     );
   }
 }
 
-/// The 提供商 field — fixed to the provider this model belongs to (the model is
-/// edited from within a provider), shown read-only with the original helper.
+/// Read-only provider field — compact single-line.
 class _ProviderField extends StatelessWidget {
   const _ProviderField({required this.name});
 
@@ -268,31 +266,35 @@ class _ProviderField extends StatelessWidget {
         Text(
           EditModelPage._providerLabel,
           style: theme.textTheme.bodyMedium?.copyWith(
-            fontSize: 14,
+            fontSize: 13,
             fontWeight: FontWeight.w500,
             color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         InputDecorator(
           decoration: InputDecoration(
             isDense: true,
             contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 12,
+              horizontal: 10,
+              vertical: 8,
             ),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: theme.dividerColor),
+            ),
           ),
           child: Text(
             name,
-            style: theme.textTheme.bodyMedium?.copyWith(fontSize: 14),
+            style: theme.textTheme.bodyMedium?.copyWith(fontSize: 13),
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         Text(
           EditModelPage._providerHelper,
           style: theme.textTheme.bodySmall?.copyWith(
-            fontSize: 12,
+            fontSize: 11,
             color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
@@ -301,9 +303,91 @@ class _ProviderField extends StatelessWidget {
   }
 }
 
-/// Dropdown for selecting the parameter display scope at the model level.
-/// Shows the current auto-detected scope as a hint so users can see what
-/// the system would pick without their override.
+/// Model ID field with copy button — the key identifier field.
+class _ModelIdField extends StatelessWidget {
+  const _ModelIdField({
+    required this.controller,
+    required this.onChanged,
+  });
+
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          EditModelPage._modelIdLabel,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 4),
+        TextField(
+          controller: controller,
+          onChanged: onChanged,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontSize: 13,
+            fontFamily: 'monospace',
+          ),
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: 'gpt-4o / claude-3-opus / ...',
+            hintStyle: theme.textTheme.bodyMedium?.copyWith(
+              fontSize: 13,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: 8,
+            ),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: theme.dividerColor),
+            ),
+            suffixIcon: controller.text.trim().isNotEmpty
+                ? IconButton(
+                    icon: const Icon(LucideIcons.copy, size: 14),
+                    constraints: const BoxConstraints(),
+                    padding: const EdgeInsets.all(8),
+                    tooltip: '复制 ID',
+                    onPressed: () {
+                      Clipboard.setData(
+                        ClipboardData(text: controller.text.trim()),
+                      );
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('已复制模型 ID'),
+                          duration: Duration(seconds: 1),
+                        ),
+                      );
+                    },
+                  )
+                : null,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          EditModelPage._modelIdHelper,
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontSize: 11,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Parameter scope dropdown — compact.
 class _ParameterScopeField extends StatelessWidget {
   const _ParameterScopeField({
     required this.value,
@@ -338,22 +422,27 @@ class _ParameterScopeField extends StatelessWidget {
         Text(
           '参数能力范围',
           style: theme.textTheme.bodyMedium?.copyWith(
-            fontSize: 14,
+            fontSize: 13,
             fontWeight: FontWeight.w500,
             color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         DropdownButtonFormField<String?>(
           initialValue: _options.any((o) => o.$1 == value) ? value : null,
           isExpanded: true,
+          style: theme.textTheme.bodyMedium?.copyWith(fontSize: 13),
           decoration: InputDecoration(
             isDense: true,
             contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 12,
+              horizontal: 10,
+              vertical: 8,
             ),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: theme.dividerColor),
+            ),
           ),
           items: [
             for (final option in _options)
@@ -364,12 +453,11 @@ class _ParameterScopeField extends StatelessWidget {
           ],
           onChanged: onChanged,
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         Text(
-          '当前自动检测结果：$detectedLabel。设置后覆盖自动检测，'
-          '优先级高于供应商级设置。',
+          '自动检测：$detectedLabel · 设置后覆盖，优先于供应商级',
           style: theme.textTheme.bodySmall?.copyWith(
-            fontSize: 12,
+            fontSize: 11,
             color: theme.colorScheme.onSurfaceVariant,
           ),
         ),
@@ -378,9 +466,7 @@ class _ParameterScopeField extends StatelessWidget {
   }
 }
 
-/// The 模型类型 section: a header (label + info hint + 自动检测 switch) and the
-/// grouped capability chips. The original defaults `autoDetect` on, which
-/// disables the chips — matching this milestone's pure-view state.
+/// Model type section — compact grouped chips with auto-detect header.
 class _ModelTypeSection extends StatelessWidget {
   const _ModelTypeSection({required this.theme});
 
@@ -407,73 +493,67 @@ class _ModelTypeSection extends StatelessWidget {
             Text(
               EditModelPage._typeLabel,
               style: theme.textTheme.bodyMedium?.copyWith(
-                fontSize: 14,
+                fontSize: 13,
                 fontWeight: FontWeight.w500,
                 color: scheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(width: 4),
-            Icon(LucideIcons.info, size: 16, color: scheme.onSurfaceVariant),
+            Icon(LucideIcons.info, size: 14, color: scheme.onSurfaceVariant),
             const Spacer(),
             Text(
               EditModelPage._autoDetectLabel,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontSize: 14,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontSize: 12,
                 color: scheme.onSurfaceVariant,
               ),
             ),
-            const SizedBox(width: 8),
-            // autoDetect defaults on; persisting it needs the data layer, so
-            // the switch is disabled this milestone.
+            const SizedBox(width: 6),
             const CustomSwitch(value: true, onChanged: null),
-            const IconButton(
-              icon: Icon(LucideIcons.settings, size: 16),
-              onPressed: null,
-            ),
           ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         for (final group in _groups) ...[
           Text(
             group.label,
             style: theme.textTheme.bodySmall?.copyWith(
-              fontSize: 12,
+              fontSize: 11,
               fontWeight: FontWeight.w600,
               color: scheme.onSurfaceVariant,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 6,
+            runSpacing: 6,
             children: [
               for (final type in group.types)
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
+                    horizontal: 8,
+                    vertical: 4,
                   ),
                   decoration: BoxDecoration(
                     color: scheme.onSurface.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(10),
                     border: Border.all(color: theme.dividerColor),
                   ),
                   child: Text(
                     type,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontSize: 13,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontSize: 12,
                       color: theme.disabledColor,
                     ),
                   ),
                 ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
         ],
         Text(
           EditModelPage._typeHelperAuto,
           style: theme.textTheme.bodySmall?.copyWith(
-            fontSize: 12,
+            fontSize: 11,
             color: scheme.onSurfaceVariant,
           ),
         ),
