@@ -13,10 +13,38 @@ part 'notes_controller.g.dart';
 /// Persisted-preference keys (single Drift KV store, no schema change).
 const String kNotesSortTypeKey = 'notes.sortType';
 const String kNotesStarredPathsKey = 'notes.starredPaths';
+const String kNotesStoragePathKey = 'notes.storagePath';
 
-/// The filesystem-backed notes store (one instance for the app lifetime).
+/// The user-chosen notes storage directory (absolute path), or `null` for the
+/// default app-documents location. Persisted in the KV store; reactive so the
+/// file store + browser rebuild when it changes.
 @Riverpod(keepAlive: true)
-NotesFileStore notesFileStore(Ref ref) => NotesFileStore();
+class NotesStoragePath extends _$NotesStoragePath {
+  ChatRepository get _store => ref.read(appSettingsStoreProvider);
+
+  @override
+  String? build() {
+    _hydrate();
+    return null;
+  }
+
+  Future<void> _hydrate() async {
+    final value = await _store.getSetting(kNotesStoragePathKey);
+    if (value != null && value.isNotEmpty) state = value;
+  }
+
+  /// Sets (or clears, when null/empty) the custom storage directory.
+  Future<void> setPath(String? path) async {
+    final next = (path != null && path.trim().isNotEmpty) ? path.trim() : null;
+    state = next;
+    await _store.saveSetting(kNotesStoragePathKey, next ?? '');
+  }
+}
+
+/// The filesystem-backed notes store. Rebuilt when the storage path changes.
+@Riverpod(keepAlive: true)
+NotesFileStore notesFileStore(Ref ref) =>
+    NotesFileStore(customRoot: ref.watch(notesStoragePathProvider));
 
 /// Immutable view-model for the notes browser.
 @immutable
@@ -80,6 +108,8 @@ class NotesController extends _$NotesController {
 
   @override
   NotesState build() {
+    // Rebuild + reload from the root when the storage directory changes.
+    ref.watch(notesFileStoreProvider);
     _hydrate();
     return const NotesState();
   }

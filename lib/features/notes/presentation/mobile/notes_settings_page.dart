@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -18,6 +19,7 @@ class NotesSettingsPage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final store = ref.watch(notesFileStoreProvider);
+    final customPath = ref.watch(notesStoragePathProvider);
     final sidebarTabEnabled = ref.watch(notesSidebarTabEnabledProvider);
 
     return Scaffold(
@@ -32,7 +34,9 @@ class NotesSettingsPage extends ConsumerWidget {
         children: [
           _Card(
             title: '存储位置',
-            description: '笔记以 .md 文件保存在此目录',
+            description: customPath == null
+                ? '笔记以 .md 文件保存在应用默认目录'
+                : '笔记保存在你选择的目录（可与其他应用共享）',
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -46,11 +50,34 @@ class NotesSettingsPage extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(height: 12),
-                const _PlaceholderRow(
-                  icon: LucideIcons.folderOpen,
-                  label: '更改存储目录',
-                  description: '选择自定义目录（即将支持）',
+                Row(
+                  children: [
+                    ModelTonalButton(
+                      icon: LucideIcons.folderOpen,
+                      label: '更改目录',
+                      onPressed: () => _changeDir(context, ref),
+                    ),
+                    if (customPath != null) ...[
+                      const SizedBox(width: 8),
+                      ModelTonalButton(
+                        icon: LucideIcons.rotateCcw,
+                        label: '恢复默认',
+                        accent: theme.colorScheme.onSurfaceVariant,
+                        onPressed: () => _resetDir(context, ref),
+                      ),
+                    ],
+                  ],
                 ),
+                if (customPath != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      '提示：Android 上若所选目录无法访问，将自动回退到默认目录。',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -133,6 +160,26 @@ class NotesSettingsPage extends ConsumerWidget {
       ),
     );
   }
+}
+
+Future<void> _changeDir(BuildContext context, WidgetRef ref) async {
+  final path = await FilePicker.getDirectoryPath(
+    dialogTitle: '选择笔记存储目录',
+  );
+  if (path == null) return; // cancelled
+  await ref.read(notesStoragePathProvider.notifier).setPath(path);
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context)
+    ..clearSnackBars()
+    ..showSnackBar(const SnackBar(content: Text('已更新存储目录')));
+}
+
+Future<void> _resetDir(BuildContext context, WidgetRef ref) async {
+  await ref.read(notesStoragePathProvider.notifier).setPath(null);
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context)
+    ..clearSnackBars()
+    ..showSnackBar(const SnackBar(content: Text('已恢复默认目录')));
 }
 
 class _Card extends StatelessWidget {

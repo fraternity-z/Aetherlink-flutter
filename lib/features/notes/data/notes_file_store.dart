@@ -10,22 +10,48 @@ import 'package:aetherlink_flutter/features/notes/domain/note_search_result.dart
 /// `SimpleNoteService` / `NotesService`. Notes are real `.md` files under a
 /// root directory; folders form the tree.
 ///
-/// MVP storage = the app documents directory (`<appDocuments>/notes`), so it
-/// works out of the box on every platform with no permissions. A user-selected
-/// directory (and Android SAF) is a later phase (see
-/// `docs/design/notes-feature-research.md` §8).
+/// Default storage = the app documents directory (`<appDocuments>/notes`), so
+/// it works out of the box on every platform with no permissions. A user can
+/// override the root with [customRoot] (picked via the system directory picker)
+/// to keep notes in a shared location — interop with the original/web app.
+///
+/// Note: on Android, an arbitrary directory may require SAF; this uses whatever
+/// path the picker returns and falls back to the default if it isn't usable.
 class NotesFileStore {
+  NotesFileStore({this.customRoot});
+
+  /// Absolute path of a user-chosen root, or `null`/empty for the default.
+  final String? customRoot;
+
   Directory? _rootCache;
 
   /// The notes root directory, created on first access.
   Future<Directory> _root() async {
     final cached = _rootCache;
     if (cached != null) return cached;
-    final base = await getApplicationDocumentsDirectory();
-    final dir = Directory(p.join(base.path, 'notes'));
+    final custom = customRoot;
+    Directory dir;
+    if (custom != null && custom.trim().isNotEmpty) {
+      dir = Directory(custom.trim());
+      // Fall back to the default if the custom path can't be used.
+      if (!dir.existsSync()) {
+        try {
+          dir.createSync(recursive: true);
+        } on FileSystemException {
+          dir = await _defaultDir();
+        }
+      }
+    } else {
+      dir = await _defaultDir();
+    }
     if (!dir.existsSync()) dir.createSync(recursive: true);
     _rootCache = dir;
     return dir;
+  }
+
+  Future<Directory> _defaultDir() async {
+    final base = await getApplicationDocumentsDirectory();
+    return Directory(p.join(base.path, 'notes'));
   }
 
   /// The absolute path of the notes root (for display in settings).
