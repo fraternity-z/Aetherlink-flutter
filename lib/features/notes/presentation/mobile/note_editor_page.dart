@@ -160,6 +160,7 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   }
 
   Widget _buildSource(ThemeData theme) {
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
     return TextField(
       controller: _controller,
       focusNode: _focusNode,
@@ -173,9 +174,9 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         fontFamilyFallback: const ['monospace'],
         height: 1.5,
       ),
-      decoration: const InputDecoration(
+      decoration: InputDecoration(
         border: InputBorder.none,
-        contentPadding: EdgeInsets.all(16),
+        contentPadding: EdgeInsets.fromLTRB(16, 16, 16, 16 + bottomInset),
         hintText: '开始输入 Markdown…',
       ),
     );
@@ -194,7 +195,12 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       );
     }
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.fromLTRB(
+        16,
+        16,
+        16,
+        16 + MediaQuery.paddingOf(context).bottom,
+      ),
       child: AppMarkdown(content: _controller.text),
     );
   }
