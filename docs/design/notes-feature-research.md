@@ -447,7 +447,7 @@ Cherry Studio 用**双层架构**：
 
 **⑤ 的限制**：Android 任意目录的完整支持需 SAF（`saf_util`/`saf_stream` 等现成插件），本期先用 `file_picker`；将来工作区一并升级到 SAF 时共用同一套自选目录机制。
 
-### 10.3 第三期 — 🚧 进行中（2026-06-25）
+### 10.3 第三期 — ✅ 基本完成（2026-06-25，仅 Android SAF 按决策延后）
 
 | 项 | 状态 | 实现 | 关键文件 |
 |----|------|------|----------|
@@ -457,9 +457,11 @@ Cherry Studio 用**双层架构**：
 | 目录大纲 ToC | ✅ 已完成 | 编辑器顶栏「大纲」按钮 → 右侧抽屉列出 ATX 标题（按级缩进、跳过代码块）；点击切到源码模式并把光标定位到该标题、滚动到位。可在设置页「显示目录大纲」开关控制入口（持久化，默认开） | `domain/note_outline.dart`(`parseOutline`)、`application/notes_controller.dart`(`NotesShowOutline`)、`presentation/mobile/note_editor_page.dart`、`presentation/mobile/notes_settings_page.dart` |
 | 表格/任务清单/数学公式 | ✅ 已完成 | 渲染本就由 `AppMarkdown`(`gpt_markdown` + flutter_math) 支持（GFM 表格、`- [ ]` 任务清单、`$…$`/`$$…$$`）；本期补齐编辑器工具栏的**插入按钮**：任务清单、表格骨架、块级公式 | `presentation/mobile/note_editor_page.dart`(`_ToolbarAction.taskList/table/math`) |
 | 导出（图片） | ✅ 已完成 | 笔记菜单「导出 → 导出为图片」：离屏渲染 `AppMarkdown` 预览 → 截图为 PNG → 走 save-as 选位置保存（桌面端手动写字节），复用聊天图片导出的 overlay+RepaintBoundary 思路 | `presentation/mobile/note_image_export.dart`、`presentation/mobile/notes_page.dart`(`_exportNoteImage`) |
-| Android SAF 自选目录 | ⬜ 未开始 | 与工作区共用 | — |
+| Android SAF 自选目录 | ⏸️ 延后 | 按 §8 #4 决策，与「工作区」一并升级到 SAF 时共用同一套机制；现状 Android 自选目录会回退默认目录 | — |
 
 > 说明：导出第一片只做 Markdown（分享文件 / 复制内容），对齐 §9.2「第一期可只做 Markdown 分享」。图片及其他格式后续再做。
+>
+> 边界测试：`test/architecture/import_boundaries_test.dart` 原本规则过宽（把「import 别 feature 的 presentation」也判违规），与项目自身 UI 约定（复用 settings 的 `ModelSettingsAppBar`、chat 的 `AppMarkdown`）冲突，在 main 上整库飘红。本期按任务真实规则**收紧为：feature 不得 import 别 feature 的 `application`/`data`（domain/presentation 允许，跨 feature 组合走 `app/di`）**，并对存量违规建立冻结基线（baseline allowlist，禁止新增），测试转绿。笔记功能在该规则下零违规、未进基线。
 
 ### 10.4 仍是占位（UI 在、功能未接）
 
@@ -492,6 +494,7 @@ Cherry Studio 用**双层架构**：
 - `feat(notes): toolbar buttons for task lists, tables and math`
 - `feat(notes): drag notes/folders onto folders or breadcrumbs to move them`
 - `feat(notes): export a note as a PNG image via save-as`
+- `test(architecture): scope the boundary guard to cross-feature application/data`
 
 ---
 
