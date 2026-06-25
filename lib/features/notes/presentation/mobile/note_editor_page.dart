@@ -344,12 +344,25 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
         return _applyLinePrefix('- ');
       case _ToolbarAction.orderedList:
         return _applyLinePrefix('1. ');
+      case _ToolbarAction.taskList:
+        return _applyLinePrefix('- [ ] ');
       case _ToolbarAction.quote:
         return _applyLinePrefix('> ');
       case _ToolbarAction.codeBlock:
         final block = '```\n$selected\n```';
         newText = text.replaceRange(start, end, block);
         caret = start + 4 + selected.length;
+      case _ToolbarAction.table:
+        const tpl =
+            '\n| 列 1 | 列 2 |\n| --- | --- |\n| 内容 | 内容 |\n';
+        newText = text.replaceRange(start, end, tpl);
+        caret = start + tpl.length;
+      case _ToolbarAction.math:
+        // Block math fence; place the caret on the empty middle line.
+        final body = selected.isEmpty ? '' : selected;
+        final insert = '\n\$\$\n$body\n\$\$\n';
+        newText = text.replaceRange(start, end, insert);
+        caret = start + 4 + body.length; // after "\n$$\n" + any selection
       case _ToolbarAction.link:
         newText = text.replaceRange(
           start,
@@ -398,8 +411,11 @@ enum _ToolbarAction {
   inlineCode,
   bulletList,
   orderedList,
+  taskList,
   quote,
   codeBlock,
+  table,
+  math,
   link,
   divider,
 }
@@ -427,8 +443,11 @@ class _MarkdownToolbar extends StatelessWidget {
       icon: LucideIcons.listOrdered,
       tip: '有序列表',
     ),
+    (action: _ToolbarAction.taskList, icon: LucideIcons.listChecks, tip: '任务清单'),
     (action: _ToolbarAction.quote, icon: LucideIcons.quote, tip: '引用'),
     (action: _ToolbarAction.codeBlock, icon: LucideIcons.squareCode, tip: '代码块'),
+    (action: _ToolbarAction.table, icon: LucideIcons.table, tip: '表格'),
+    (action: _ToolbarAction.math, icon: LucideIcons.sigma, tip: '数学公式'),
     (action: _ToolbarAction.link, icon: LucideIcons.link, tip: '链接'),
     (action: _ToolbarAction.divider, icon: LucideIcons.minus, tip: '分割线'),
   ];
