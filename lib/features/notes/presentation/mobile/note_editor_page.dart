@@ -803,16 +803,22 @@ class _MarkdownToolbar extends StatelessWidget {
         color: theme.colorScheme.surface,
         border: Border(bottom: BorderSide(color: theme.dividerColor)),
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
+      child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-        child: Row(
+        // Auto-flowing grid so every button is visible without horizontal
+        // scrolling (which users couldn't discover).
+        child: Wrap(
+          spacing: 2,
+          runSpacing: 2,
           children: [
             for (final item in _items)
               IconButton(
                 icon: Icon(item.icon, size: 18),
                 color: theme.colorScheme.onSurfaceVariant,
                 tooltip: item.tip,
+                visualDensity: VisualDensity.compact,
+                constraints: const BoxConstraints(minWidth: 40, minHeight: 36),
+                padding: EdgeInsets.zero,
                 onPressed: () {
                   HapticFeedback.selectionClick();
                   onAction(item.action);
