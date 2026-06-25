@@ -1285,7 +1285,11 @@ class _CompactActionChip extends StatelessWidget {
   }
 }
 
-/// Test mode toggle — icon button with a popup for "长期显示" switch.
+/// Test mode toggle — two clearly tappable chips side-by-side.
+///
+///  ┌─────────┐ ┌──────┐
+///  │ 🧪 测试  │ │ 📌 固定│
+///  └─────────┘ └──────┘
 class _TestModeToggle extends StatelessWidget {
   const _TestModeToggle({
     required this.active,
@@ -1302,17 +1306,21 @@ class _TestModeToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = active
+    final testColor = active
         ? theme.colorScheme.error
         : (theme.brightness == Brightness.dark
             ? const Color(0xFF66BB6A)
             : const Color(0xFF2E7D32));
+    final pinColor = alwaysShow
+        ? theme.colorScheme.primary
+        : theme.colorScheme.onSurfaceVariant;
 
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        // Test mode chip
         Material(
-          color: color.withValues(alpha: active ? 0.15 : 0.1),
+          color: testColor.withValues(alpha: active ? 0.18 : 0.1),
           borderRadius: BorderRadius.circular(10),
           child: InkWell(
             onTap: onToggleTestMode,
@@ -1322,14 +1330,14 @@ class _TestModeToggle extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(LucideIcons.flaskConical, size: 13, color: color),
+                  Icon(LucideIcons.flaskConical, size: 14, color: testColor),
                   const SizedBox(width: 4),
                   Text(
                     active ? '退出' : '测试',
                     style: theme.textTheme.labelMedium?.copyWith(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: color,
+                      color: testColor,
                     ),
                   ),
                 ],
@@ -1337,17 +1345,39 @@ class _TestModeToggle extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(width: 4),
+        const SizedBox(width: 6),
+        // Pin / always-show chip
         Tooltip(
-          message: alwaysShow ? '隐藏测试按钮' : '长期显示测试按钮',
-          child: GestureDetector(
-            onTap: () => onToggleAlwaysShow(!alwaysShow),
-            child: Icon(
-              alwaysShow ? LucideIcons.pin : LucideIcons.pinOff,
-              size: 14,
-              color: alwaysShow
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.onSurfaceVariant,
+          message: alwaysShow ? '取消固定测试按钮' : '固定测试按钮到模型列表',
+          child: Material(
+            color: pinColor.withValues(alpha: alwaysShow ? 0.15 : 0.08),
+            borderRadius: BorderRadius.circular(10),
+            child: InkWell(
+              onTap: () => onToggleAlwaysShow(!alwaysShow),
+              borderRadius: BorderRadius.circular(10),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      alwaysShow ? LucideIcons.pin : LucideIcons.pinOff,
+                      size: 14,
+                      color: pinColor,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      alwaysShow ? '已固定' : '固定',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: pinColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
