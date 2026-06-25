@@ -46,7 +46,7 @@ class ThinkingSettingsController extends _$ThinkingSettingsController
   void setThoughtAutoCollapse(bool value) =>
       persist(state.copyWith(thoughtAutoCollapse: value));
 
-  /// Toggles 思考过程内显示工具调用 (saved only — not wired to the chat view yet).
+  /// Toggles 思考过程内显示工具调用; gates [MessageBlockRenderer]'s inline grouping.
   void setThinkingToolInline(bool value) =>
       persist(state.copyWith(thinkingToolInline: value));
 }

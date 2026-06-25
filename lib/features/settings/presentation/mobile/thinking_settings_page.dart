@@ -15,11 +15,10 @@ import 'package:aetherlink_flutter/shared/widgets/thinking_styled_view.dart';
 /// `src/pages/Settings/ThinkingProcessSettings.tsx`.
 ///
 /// Mirrors the original's two cards — 思考过程显示 (style select + 自动折叠 +
-/// 工具内联 + the per-style instructions) and 实时预览 (hidden when the style is
-/// `hidden`) — and persists every option through [ThinkingSettingsController].
-/// The display style + 自动折叠 re-render the chat thinking block live; the
-/// 工具内联 toggle is saved only (Flutter has no thinking-phase tool grouping
-/// yet) and carries an inline "即将支持" note instead of faking the behaviour.
+/// 工具内联) and 实时预览 (hidden when the style is `hidden`) — and persists every
+/// option through [ThinkingSettingsController]. All three options re-render the
+/// chat live: the display style + 自动折叠 via the thinking block, and 工具内联
+/// via [MessageBlockRenderer]'s inline grouping.
 class ThinkingSettingsPage extends ConsumerWidget {
   const ThinkingSettingsPage({super.key});
 
@@ -80,8 +79,8 @@ class ThinkingSettingsPage extends ConsumerWidget {
   }
 }
 
-/// 思考过程显示 card: the style select, the two switches and the per-style
-/// instructions, all under a brain-tinted header.
+/// 思考过程显示 card: the style select and the two switches, under a
+/// brain-tinted header.
 class _DisplayCard extends StatelessWidget {
   const _DisplayCard({required this.settings, required this.controller});
 
@@ -99,7 +98,6 @@ class _DisplayCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return _Card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -118,37 +116,19 @@ class _DisplayCard extends StatelessWidget {
             items: _styleLabels,
             onChanged: controller.setDisplayStyle,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
           _DescribedSwitchRow(
             title: '思考完成后自动折叠',
-            description: '开启后，思考完成时思考块默认折叠，点击可展开查看。',
+            description: '思考完成时默认折叠，点击可展开。',
             value: settings.thoughtAutoCollapse,
             onChanged: controller.setThoughtAutoCollapse,
           ),
-          const _CardDivider(),
+          const SizedBox(height: 14),
           _DescribedSwitchRow(
             title: '思考过程内显示工具调用',
-            description: '将思考阶段发起的工具调用以简化样式内嵌进思考块；关闭后工具调用始终独立显示在消息下方。',
+            description: '思考阶段的工具调用内嵌进思考块；关闭后独立显示在消息下方。',
             value: settings.thinkingToolInline,
             onChanged: controller.setThinkingToolInline,
-          ),
-          const SizedBox(height: 12),
-          const _PendingNote(
-            text: '工具内联显示功能即将支持：Flutter 端暂未实现思考阶段工具调用分组，此开关当前仅保存设置。',
-          ),
-          const _CardDivider(),
-          Text(
-            '设置AI助手思考过程的显示方式：\n'
-            '• 紧凑模式：标准卡片样式，可折叠展开\n'
-            '• 完整模式：始终展开显示全部内容\n'
-            '• 极简模式：只显示小图标，点击查看内容\n'
-            '• 气泡模式：类似聊天气泡的圆润设计\n'
-            '• 卡片模式：突出的渐变卡片设计\n'
-            '• 隐藏：完全不显示思考过程',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              height: 1.6,
-            ),
           ),
         ],
       ),
@@ -266,7 +246,7 @@ class _PreviewCardState extends State<_PreviewCard> {
 // Shared card scaffolding (mirrors `message_bubble_settings_page.dart`)
 // ---------------------------------------------------------------------------
 
-/// A 16px-gap, 20px-padded, 24px-radius card with a 1px divider border.
+/// A 12px-gap, 16px-padded, 18px-radius card with a 1px divider border.
 class _Card extends StatelessWidget {
   const _Card({required this.child});
 
@@ -276,11 +256,11 @@ class _Card extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(20),
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: theme.dividerColor),
       ),
       child: child,
@@ -288,14 +268,14 @@ class _Card extends StatelessWidget {
   }
 }
 
-/// A `my:2` (16px vertical) hairline divider, the original card section break.
+/// A 12px-vertical hairline divider marking a card section break.
 class _CardDivider extends StatelessWidget {
   const _CardDivider();
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 16),
+      padding: const EdgeInsets.symmetric(vertical: 12),
       child: Divider(height: 1, color: Theme.of(context).dividerColor),
     );
   }
@@ -325,14 +305,14 @@ class _CardHeader extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(7),
           decoration: BoxDecoration(
             color: hue.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(12),
           ),
-          child: Icon(icon, size: 20, color: hue),
+          child: Icon(icon, size: 18, color: hue),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 10),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -362,10 +342,10 @@ class _CardHeader extends StatelessWidget {
                 ],
               ),
               if (description != null) ...[
-                const SizedBox(height: 4),
+                const SizedBox(height: 2),
                 Text(
                   description!,
-                  style: theme.textTheme.bodyMedium?.copyWith(
+                  style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
@@ -374,40 +354,6 @@ class _CardHeader extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-/// A "saved-only" banner explaining a setting is not wired to the chat view yet.
-class _PendingNote extends StatelessWidget {
-  const _PendingNote({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final hue = theme.colorScheme.primary;
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: hue.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: hue.withValues(alpha: 0.2)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(LucideIcons.info, size: 16, color: hue),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              text,
-              style: theme.textTheme.bodySmall?.copyWith(color: hue),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
