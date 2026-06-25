@@ -19,6 +19,28 @@ part 'font_settings_controller.g.dart';
 /// how the other appearance settings live under the `settings` slice).
 const String kFontSettingKey = 'fontSettings';
 
+/// Asset bundling the Google Fonts catalog metadata (family → style category and
+/// the subset of families that ship CJK glyphs), used to group / filter the
+/// Google Fonts picker the way the original web product does.
+const String _kGoogleFontMetaAsset = 'assets/fonts/google_font_categories.json';
+
+/// A Google Fonts family with the metadata the picker groups / filters by.
+class GoogleFontInfo {
+  const GoogleFontInfo({
+    required this.family,
+    required this.category,
+    required this.cjk,
+  });
+
+  final String family;
+
+  /// One of `sans-serif` / `serif` / `monospace` / `display` / `handwriting`.
+  final String category;
+
+  /// Whether the family ships CJK glyphs (so it actually changes Chinese text).
+  final bool cjk;
+}
+
 /// Loads and registers fonts for the three supported sources, the Flutter-native
 /// port of kelivo's font mechanism:
 ///   * 系统字体 → `system_fonts`（扫描系统字体目录并注册）；
@@ -41,6 +63,33 @@ class FontLoaderService {
   /// The full Google Fonts catalog family names (sorted), used to populate the
   /// Google Fonts picker.
   List<String> googleFonts() => GoogleFonts.asMap().keys.toList()..sort();
+
+  Map<String, String>? _gfCategories;
+  Set<String>? _gfCjk;
+
+  /// The full Google Fonts catalog tagged with style category + CJK support,
+  /// sorted by family. Loads the bundled metadata once and caches it.
+  Future<List<GoogleFontInfo>> googleFontsCategorized() async {
+    if (_gfCategories == null || _gfCjk == null) {
+      final raw = await rootBundle.loadString(_kGoogleFontMetaAsset);
+      final meta = jsonDecode(raw) as Map<String, dynamic>;
+      _gfCategories = (meta['categories'] as Map).map(
+        (k, v) => MapEntry(k as String, v as String),
+      );
+      _gfCjk = ((meta['cjk'] as List).cast<String>()).toSet();
+    }
+    final categories = _gfCategories!;
+    final cjk = _gfCjk!;
+    final out = [
+      for (final family in GoogleFonts.asMap().keys)
+        GoogleFontInfo(
+          family: family,
+          category: categories[family] ?? 'sans-serif',
+          cjk: cjk.contains(family),
+        ),
+    ]..sort((a, b) => a.family.compareTo(b.family));
+    return out;
+  }
 
   /// The previously imported local fonts (one per file under the app fonts dir),
   /// re-registered so they render in the picker preview, used to populate the

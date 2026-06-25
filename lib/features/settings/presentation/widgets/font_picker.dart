@@ -9,7 +9,7 @@ import 'package:aetherlink_flutter/shared/domain/font_settings.dart';
 enum FontDimension { app, code }
 
 /// The 全局字体 block on the appearance page: an 应用字体 row over a 代码字体 row.
-/// Each row opens [FontPickerSheet] to pick from 系统 / Google / 本地 sources,
+/// Each row opens [FontPickerPage] to pick from 系统 / Google / 本地 sources,
 /// mirroring the web product shape while staying fully Flutter-native.
 class FontFamilySection extends ConsumerWidget {
   const FontFamilySection({super.key});
@@ -74,16 +74,11 @@ class _FontFieldRow extends ConsumerWidget {
 
     return InkWell(
       borderRadius: BorderRadius.circular(16),
-      onTap: () => showModalBottomSheet<void>(
-        context: context,
-        isScrollControlled: true,
-        useSafeArea: true,
-        backgroundColor: theme.colorScheme.surface,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) =>
+              FontPickerPage(dimension: dimension, current: selection),
         ),
-        builder: (_) =>
-            FontPickerSheet(dimension: dimension, current: selection),
       ),
       child: InputDecorator(
         decoration: InputDecoration(
@@ -158,11 +153,14 @@ class _SourceTag extends StatelessWidget {
   }
 }
 
-/// A modal bottom sheet to pick a font for one [FontDimension] from one of the
-/// three sources (系统 / Google / 本地) or to reset to the platform default.
-/// Selecting a font applies it immediately through [FontSettingsController].
-class FontPickerSheet extends ConsumerStatefulWidget {
-  const FontPickerSheet({
+/// A full-page picker for one [FontDimension]. Fonts can be chosen from one of
+/// the three sources (系统 / Google / 本地) or reset to the platform default.
+/// Google Fonts are additionally grouped / filtered by style category (无衬线 /
+/// 衬线 / 等宽 / 展示 / 手写) and a 中文 filter for the families that ship CJK
+/// glyphs, mirroring the original web product. Selecting a font applies it
+/// immediately through [FontSettingsController].
+class FontPickerPage extends ConsumerStatefulWidget {
+  const FontPickerPage({
     required this.dimension,
     required this.current,
     super.key,
@@ -172,14 +170,35 @@ class FontPickerSheet extends ConsumerStatefulWidget {
   final FontSelection current;
 
   @override
-  ConsumerState<FontPickerSheet> createState() => _FontPickerSheetState();
+  ConsumerState<FontPickerPage> createState() => _FontPickerPageState();
 }
 
-class _FontPickerSheetState extends ConsumerState<FontPickerSheet> {
+/// Google Fonts style categories (plus a synthetic 全部 / 中文) and their labels.
+const String _kGfAll = 'all';
+const String _kGfCjk = 'cjk';
+const List<(String, String)> _kGfCategories = [
+  (_kGfAll, '全部'),
+  (_kGfCjk, '中文'),
+  ('sans-serif', '无衬线'),
+  ('serif', '衬线'),
+  ('monospace', '等宽'),
+  ('display', '展示'),
+  ('handwriting', '手写'),
+];
+
+String _gfCategoryLabel(String category) {
+  for (final (value, label) in _kGfCategories) {
+    if (value == category) return label;
+  }
+  return category;
+}
+
+class _FontPickerPageState extends ConsumerState<FontPickerPage> {
   FontSource _source = FontSource.system;
   String _query = '';
+  String _gfCategory = _kGfAll;
   List<String> _system = const [];
-  List<String> _google = const [];
+  List<GoogleFontInfo> _google = const [];
   List<FontSelection> _local = const [];
   bool _loading = true;
   bool _importing = false;
@@ -196,7 +215,7 @@ class _FontPickerSheetState extends ConsumerState<FontPickerSheet> {
   Future<void> _load() async {
     final service = ref.read(fontLoaderServiceProvider);
     final system = service.systemFonts();
-    final google = service.googleFonts();
+    final google = await service.googleFontsCategorized();
     final local = await service.localFonts();
     if (!mounted) return;
     setState(() {
@@ -235,146 +254,163 @@ class _FontPickerSheetState extends ConsumerState<FontPickerSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return DraggableScrollableSheet(
-      initialChildSize: 0.85,
-      minChildSize: 0.5,
-      maxChildSize: 0.95,
-      expand: false,
-      builder: (context, scrollController) => Column(
-        children: [
-          const SizedBox(height: 8),
-          Container(
-            width: 36,
-            height: 4,
-            decoration: BoxDecoration(
-              color: theme.dividerColor,
-              borderRadius: BorderRadius.circular(2),
+    return Scaffold(
+      appBar: AppBar(title: Text(_title)),
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            const SizedBox(height: 8),
+            _SourceSelector(
+              source: _source,
+              onChanged: (s) => setState(() => _source = s),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    _title,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: TextField(
+                onChanged: (v) => setState(() => _query = v.trim()),
+                decoration: InputDecoration(
+                  isDense: true,
+                  hintText: '搜索字体',
+                  prefixIcon: const Icon(LucideIcons.search, size: 18),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                ),
-                IconButton(
-                  icon: const Icon(LucideIcons.x, size: 20),
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-              ],
-            ),
-          ),
-          _SourceSelector(
-            source: _source,
-            onChanged: (s) => setState(() => _source = s),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: TextField(
-              onChanged: (v) => setState(() => _query = v.trim()),
-              decoration: InputDecoration(
-                isDense: true,
-                hintText: '搜索字体',
-                prefixIcon: const Icon(LucideIcons.search, size: 18),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                 ),
               ),
             ),
-          ),
-          if (_source == FontSource.google)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: Row(
-                children: [
-                  Icon(
-                    LucideIcons.info,
-                    size: 14,
-                    color: Theme.of(context).colorScheme.outline,
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      '多数 Google 字体仅含拉丁字形，中文会回退到系统字体',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.outline,
+            if (_source == FontSource.google) ...[
+              _GfCategoryBar(
+                selected: _gfCategory,
+                onChanged: (c) => setState(() => _gfCategory = c),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Row(
+                  children: [
+                    Icon(
+                      LucideIcons.info,
+                      size: 14,
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        '多数 Google 字体仅含拉丁字形，中文请选「中文」分类',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.outline,
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-          if (_source == FontSource.local)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: _importing ? null : _importLocal,
-                  icon: _importing
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(LucideIcons.plus, size: 18),
-                  label: const Text('添加本地字体'),
+                  ],
                 ),
               ),
+            ],
+            if (_source == FontSource.local)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _importing ? null : _importLocal,
+                    icon: _importing
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(LucideIcons.plus, size: 18),
+                    label: const Text('添加本地字体'),
+                  ),
+                ),
+              ),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _buildList(),
             ),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _buildList(scrollController),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildList(ScrollController scrollController) {
-    final defaultSelected = widget.current.family.isEmpty;
+  /// Flattens the current source / filter selection into a list of rows
+  /// (a header or a font option), so a single `ListView.builder` can render
+  /// grouped sections while staying virtualized.
+  List<_PickerRow> _rows() {
+    final rows = <_PickerRow>[const _OptionRow(null)];
+    final q = _query.toLowerCase();
+    bool matches(String family) =>
+        q.isEmpty || family.toLowerCase().contains(q);
 
-    final List<FontSelection> options;
     switch (_source) {
       case FontSource.system:
-        options = [
-          for (final f in _system)
-            FontSelection(source: FontSource.system, family: f),
-        ];
-      case FontSource.google:
-        options = [
-          for (final f in _google)
-            FontSelection(source: FontSource.google, family: f),
-        ];
+        for (final f in _system) {
+          if (matches(f)) {
+            rows.add(
+              _OptionRow(FontSelection(source: FontSource.system, family: f)),
+            );
+          }
+        }
       case FontSource.local:
-        options = _local;
+        for (final f in _local) {
+          if (matches(f.family)) rows.add(_OptionRow(f));
+        }
+      case FontSource.google:
+        _appendGoogleRows(rows, matches);
     }
+    return rows;
+  }
 
-    final filtered = _query.isEmpty
-        ? options
-        : options
-              .where(
-                (o) => o.family.toLowerCase().contains(_query.toLowerCase()),
-              )
-              .toList();
+  void _appendGoogleRows(List<_PickerRow> rows, bool Function(String) matches) {
+    final visible = [
+      for (final info in _google)
+        if (matches(info.family)) info,
+    ];
+    if (_gfCategory == _kGfCjk) {
+      for (final info in visible) {
+        if (info.cjk) rows.add(_OptionRow(info.toSelection()));
+      }
+      return;
+    }
+    if (_gfCategory != _kGfAll) {
+      for (final info in visible) {
+        if (info.category == _gfCategory) {
+          rows.add(_OptionRow(info.toSelection()));
+        }
+      }
+      return;
+    }
+    // 全部：group by style category, in the catalog's canonical order.
+    for (final (value, _) in _kGfCategories) {
+      if (value == _kGfAll || value == _kGfCjk) continue;
+      final group = [
+        for (final info in visible)
+          if (info.category == value) info,
+      ];
+      if (group.isEmpty) continue;
+      rows.add(_HeaderRow(_gfCategoryLabel(value)));
+      for (final info in group) {
+        rows.add(_OptionRow(info.toSelection()));
+      }
+    }
+  }
 
+  Widget _buildList() {
+    final rows = _rows();
+    final defaultSelected = widget.current.family.isEmpty;
     return ListView.builder(
-      controller: scrollController,
-      itemCount: filtered.length + 1,
+      itemCount: rows.length,
       itemBuilder: (context, index) {
-        if (index == 0) {
+        final row = rows[index];
+        if (row is _HeaderRow) return _SectionHeader(label: row.label);
+        final option = (row as _OptionRow).option;
+        if (option == null) {
           return _FontOptionTile(
             title: _defaultLabel,
             selected: defaultSelected,
@@ -383,7 +419,6 @@ class _FontPickerSheetState extends ConsumerState<FontPickerSheet> {
             onTap: () => _apply(const FontSelection()),
           );
         }
-        final option = filtered[index - 1];
         final selected =
             !defaultSelected &&
             widget.current.source == option.source &&
@@ -407,6 +442,86 @@ class _FontPickerSheetState extends ConsumerState<FontPickerSheet> {
   String? _resolvePreview(FontSelection option) {
     if (option.source == FontSource.google) return null;
     return option.family;
+  }
+}
+
+extension on GoogleFontInfo {
+  FontSelection toSelection() =>
+      FontSelection(source: FontSource.google, family: family);
+}
+
+/// A row in the picker list: either a category header or a font option (a null
+/// option denotes the "platform default" reset tile).
+sealed class _PickerRow {
+  const _PickerRow();
+}
+
+class _HeaderRow extends _PickerRow {
+  const _HeaderRow(this.label);
+  final String label;
+}
+
+class _OptionRow extends _PickerRow {
+  const _OptionRow(this.option);
+  final FontSelection? option;
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
+      child: Text(
+        label,
+        style: theme.textTheme.labelMedium?.copyWith(
+          color: theme.colorScheme.primary,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _GfCategoryBar extends StatelessWidget {
+  const _GfCategoryBar({required this.selected, required this.onChanged});
+
+  final String selected;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SizedBox(
+      height: 40,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        children: [
+          for (final (value, label) in _kGfCategories)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ChoiceChip(
+                label: Text(label),
+                selected: value == selected,
+                onSelected: (_) => onChanged(value),
+                labelStyle: theme.textTheme.labelLarge?.copyWith(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: value == selected
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurfaceVariant,
+                ),
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 
