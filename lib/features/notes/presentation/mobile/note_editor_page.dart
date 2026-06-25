@@ -7,6 +7,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:aetherlink_flutter/features/chat/presentation/widgets/blocks/app_markdown.dart';
 import 'package:aetherlink_flutter/features/notes/application/notes_controller.dart';
+import 'package:aetherlink_flutter/features/notes/domain/note_outline.dart';
 import 'package:aetherlink_flutter/features/settings/presentation/widgets/model_settings_widgets.dart';
 
 /// Two editor view modes for a note.
@@ -32,6 +33,7 @@ class NoteEditorPage extends ConsumerStatefulWidget {
 class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode();
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   Timer? _debounce;
 
   _NoteViewMode _mode = _NoteViewMode.source;
@@ -103,10 +105,20 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final showOutline = ref.watch(notesShowOutlineProvider);
     return Scaffold(
+      key: _scaffoldKey,
+      endDrawer: showOutline ? _buildOutlineDrawer(theme) : null,
       appBar: ModelSettingsAppBar(
         title: widget.title,
         actions: [
+          if (showOutline)
+            IconButton(
+              icon: const Icon(LucideIcons.list, size: 20),
+              color: theme.colorScheme.onSurfaceVariant,
+              tooltip: '目录大纲',
+              onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+            ),
           // Source / preview toggle.
           IconButton(
             icon: Icon(
@@ -203,6 +215,101 @@ class _NoteEditorPageState extends ConsumerState<NoteEditorPage> {
       ),
       child: AppMarkdown(content: _controller.text),
     );
+  }
+
+  /// The table-of-contents drawer: ATX headings parsed live from the source,
+  /// indented by level. Tapping one jumps the cursor to that heading.
+  Widget _buildOutlineDrawer(ThemeData theme) {
+    final headings = parseOutline(_controller.text);
+    return Drawer(
+      width: 280,
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Row(
+                children: [
+                  Icon(
+                    LucideIcons.list,
+                    size: 18,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '目录大纲',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Divider(height: 1, color: theme.dividerColor),
+            Expanded(
+              child: headings.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                          '暂无目录\n添加 # 标题后在此显示',
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      itemCount: headings.length,
+                      itemBuilder: (context, index) {
+                        final h = headings[index];
+                        return InkWell(
+                          onTap: () => _jumpToHeading(h),
+                          child: Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              16.0 + (h.level - 1) * 14,
+                              10,
+                              16,
+                              10,
+                            ),
+                            child: Text(
+                              h.text,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: h.level == 1
+                                    ? theme.colorScheme.onSurface
+                                    : theme.colorScheme.onSurfaceVariant,
+                                fontWeight: h.level == 1
+                                    ? FontWeight.w600
+                                    : FontWeight.w400,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Closes the outline drawer, switches to source mode and moves the cursor to
+  /// the tapped heading so the editor scrolls it into view.
+  void _jumpToHeading(NoteHeading heading) {
+    Navigator.of(context).pop(); // close the drawer
+    setState(() => _mode = _NoteViewMode.source);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final offset = heading.offset.clamp(0, _controller.text.length);
+      _controller.selection = TextSelection.collapsed(offset: offset);
+      _focusNode.requestFocus();
+    });
   }
 
   /// Applies a toolbar formatting action to the current selection / cursor.

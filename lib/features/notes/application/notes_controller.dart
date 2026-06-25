@@ -14,6 +14,30 @@ part 'notes_controller.g.dart';
 const String kNotesSortTypeKey = 'notes.sortType';
 const String kNotesStarredPathsKey = 'notes.starredPaths';
 const String kNotesStoragePathKey = 'notes.storagePath';
+const String kNotesShowOutlineKey = 'notes.showOutline';
+
+/// Whether the editor shows the table-of-contents (outline) entry. Persisted in
+/// the KV store; defaults to on. Reactive so the editor toolbar updates live.
+@Riverpod(keepAlive: true)
+class NotesShowOutline extends _$NotesShowOutline {
+  ChatRepository get _store => ref.read(appSettingsStoreProvider);
+
+  @override
+  bool build() {
+    _hydrate();
+    return true;
+  }
+
+  Future<void> _hydrate() async {
+    final value = await _store.getSetting(kNotesShowOutlineKey);
+    if (value != null && value.isNotEmpty) state = value == 'true';
+  }
+
+  Future<void> set(bool value) async {
+    state = value;
+    await _store.saveSetting(kNotesShowOutlineKey, value ? 'true' : 'false');
+  }
+}
 
 /// The user-chosen notes storage directory (absolute path), or `null` for the
 /// default app-documents location. Persisted in the KV store; reactive so the

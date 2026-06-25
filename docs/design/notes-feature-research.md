@@ -454,7 +454,7 @@ Cherry Studio 用**双层架构**：
 | 导出（Markdown） | ✅ 已完成 | 笔记菜单「导出」接线：`file_picker` 的 `saveFile` 让用户**选保存位置另存为 `.md`**（桌面端手动写字节，复用项目既有模式），或经 `ClipboardApi` 复制正文到剪贴板；仅对文件项显示 | `presentation/mobile/notes_page.dart`(`_exportNote`/`_saveNoteFile`/`_copyNoteMarkdown`) |
 | 导入（文件/文件夹） | ✅ 已完成 | 新建菜单「导入笔记」接线：`file_picker` 多选 `.md` 文件，或选文件夹递归导入（保留子目录层级、仅 `.md`、碰撞自动改名）导入到当前目录 | `data/notes_file_store.dart`(`importFiles`/`importFolder`)、`application/notes_controller.dart`、`presentation/mobile/notes_page.dart`(`_importMenu`/`_importFiles`/`_importFolder`) |
 | 拖拽移动 | ⬜ 未开始 | — | — |
-| 目录大纲 ToC | ⬜ 未开始 | — | — |
+| 目录大纲 ToC | ✅ 已完成 | 编辑器顶栏「大纲」按钮 → 右侧抽屉列出 ATX 标题（按级缩进、跳过代码块）；点击切到源码模式并把光标定位到该标题、滚动到位。可在设置页「显示目录大纲」开关控制入口（持久化，默认开） | `domain/note_outline.dart`(`parseOutline`)、`application/notes_controller.dart`(`NotesShowOutline`)、`presentation/mobile/note_editor_page.dart`、`presentation/mobile/notes_settings_page.dart` |
 | 表格/任务清单/数学公式 | ⬜ 未开始 | — | — |
 | 导出（图片） | ⬜ 未开始 | 可复用代码块全屏截图能力 | — |
 | Android SAF 自选目录 | ⬜ 未开始 | 与工作区共用 | — |
@@ -463,11 +463,11 @@ Cherry Studio 用**双层架构**：
 
 ### 10.4 仍是占位（UI 在、功能未接）
 
-目录大纲 ToC、编辑器默认模式/字号/显示大纲等设置项 —— 「即将推出」禁用态。
+编辑器「默认打开模式 / 字号」设置项 —— 「即将推出」禁用态。
 
 ### 10.5 后续阶段（未开始）
 
-- **第三期（剩余）**：拖拽移动、目录大纲、表格/任务清单/数学公式、导出（图片）、Android SAF 自选目录。
+- **第三期（剩余）**：拖拽移动、表格/任务清单/数学公式、导出（图片）、Android SAF 自选目录。
 - **第四期（待知识库就绪）**：笔记↔知识库联动。
 
 ### 10.6 相关提交
@@ -488,6 +488,7 @@ Cherry Studio 用**双层架构**：
 - `feat(notes): export a note as a shared Markdown file or to the clipboard`
 - `feat(notes): import notes from .md files or a folder (hierarchy preserved)`
 - `feat(notes): export a note via save-as dialog instead of the share sheet`
+- `feat(notes): table-of-contents outline drawer in the note editor`
 
 ---
 

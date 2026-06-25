@@ -141,17 +141,20 @@ class NotesSettingsPage extends ConsumerWidget {
                   description: '调整编辑器字号（即将支持）',
                 ),
                 Divider(height: 1, color: theme.dividerColor),
-                const _PlaceholderRow(
+                _ToggleRow(
                   icon: LucideIcons.list,
                   label: '显示目录大纲',
-                  description: '在编辑器侧边显示大纲（即将支持）',
+                  description: '在编辑器顶栏显示大纲入口',
+                  value: ref.watch(notesShowOutlineProvider),
+                  onChanged: (v) =>
+                      ref.read(notesShowOutlineProvider.notifier).set(v),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 16),
           Text(
-            '更多功能（目录大纲、表格/任务清单/数学公式、拖拽移动）将在后续版本陆续上线。',
+            '更多功能（表格/任务清单/数学公式、拖拽移动）将在后续版本陆续上线。',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
@@ -211,6 +214,59 @@ class _Card extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           child,
+        ],
+      ),
+    );
+  }
+}
+
+class _ToggleRow extends StatelessWidget {
+  const _ToggleRow({
+    required this.icon,
+    required this.label,
+    required this.description,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final IconData icon;
+  final String label;
+  final String description;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: theme.colorScheme.onSurface),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  label,
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    fontWeight: FontWeight.w500,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  description,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Switch(value: value, onChanged: onChanged),
         ],
       ),
     );
