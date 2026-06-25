@@ -152,30 +152,15 @@ class _SourceTag extends StatelessWidget {
   }
 }
 
-/// A snappy push route for [FontPickerPage]: a brief fade + slide that avoids
-/// the default `MaterialPageRoute`'s long forward/return transition lag.
+/// A zero-duration push route for [FontPickerPage]. Matches the rest of the
+/// app (see `AppRouter._instant` and the voice / model-combo detail pushes):
+/// navigation is intentionally instant, so both durations are [Duration.zero]
+/// and no transition is applied.
 PageRoute<void> _fastPickerRoute(Widget page) {
   return PageRouteBuilder<void>(
-    transitionDuration: const Duration(milliseconds: 160),
-    reverseTransitionDuration: const Duration(milliseconds: 120),
+    transitionDuration: Duration.zero,
+    reverseTransitionDuration: Duration.zero,
     pageBuilder: (_, __, ___) => page,
-    transitionsBuilder: (_, animation, __, child) {
-      final curved = CurvedAnimation(
-        parent: animation,
-        curve: Curves.easeOutCubic,
-        reverseCurve: Curves.easeInCubic,
-      );
-      return FadeTransition(
-        opacity: curved,
-        child: SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(0, 0.02),
-            end: Offset.zero,
-          ).animate(curved),
-          child: child,
-        ),
-      );
-    },
   );
 }
 
