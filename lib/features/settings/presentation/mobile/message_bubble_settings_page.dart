@@ -20,13 +20,59 @@ import 'package:aetherlink_flutter/shared/widgets/color_picker.dart';
 /// (operation mode, micro bubbles, TTS, version switch) is saved only — Flutter
 /// has no message-action toolbar yet — and carries an inline "即将支持" note
 /// instead of fake buttons.
-class MessageBubbleSettingsPage extends ConsumerWidget {
+///
+/// The five cards are organised into a top tab strip (mirroring the
+/// `mcp_server_settings_page` pattern): 功能 (气泡功能设置), 外观 (宽度 / 头像和名称 /
+/// 隐藏气泡) and 颜色 (自定义气泡颜色 + 预览). Tab content swaps instantly via an
+/// [IndexedStack] and a >60px horizontal swipe jumps to the adjacent tab.
+class MessageBubbleSettingsPage extends ConsumerStatefulWidget {
   const MessageBubbleSettingsPage({super.key});
 
   static const String _title = '信息气泡管理';
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<MessageBubbleSettingsPage> createState() =>
+      _MessageBubbleSettingsPageState();
+}
+
+class _MessageBubbleSettingsPageState
+    extends ConsumerState<MessageBubbleSettingsPage>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController = TabController(
+    length: 3,
+    vsync: this,
+  )..addListener(_onTabChanged);
+
+  // Drive the shown tab straight off the controller via an [IndexedStack] so
+  // content swaps the moment a tab is tapped or swiped (the indicator still
+  // slides), mirroring the MCP page.
+  int _index = 0;
+
+  // Horizontal swipe accumulator: a >60px drag jumps to the adjacent tab.
+  double _swipeDx = 0;
+
+  void _onTabChanged() {
+    if (_tabController.index != _index) {
+      setState(() => _index = _tabController.index);
+    }
+  }
+
+  void _onSwipeEnd() {
+    if (_swipeDx.abs() <= 60) return;
+    final next = (_tabController.index + (_swipeDx < 0 ? 1 : -1)).clamp(0, 2);
+    if (next != _tabController.index) _tabController.animateTo(next);
+  }
+
+  @override
+  void dispose() {
+    _tabController
+      ..removeListener(_onTabChanged)
+      ..dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final settings = ref.watch(messageBubbleSettingsControllerProvider);
     final controller = ref.read(
@@ -61,21 +107,122 @@ class MessageBubbleSettingsPage extends ConsumerWidget {
           fontWeight: FontWeight.w600,
           color: theme.colorScheme.onSurface,
         ),
-        title: const Text(_title),
+        title: const Text(MessageBubbleSettingsPage._title),
       ),
-      body: ListView(
-        padding: EdgeInsets.fromLTRB(
-          16,
-          16,
-          16,
-          16 + MediaQuery.paddingOf(context).bottom,
-        ),
+      body: Column(
         children: [
-          _FunctionCard(settings: settings, controller: controller),
-          _WidthCard(settings: settings, controller: controller),
-          _AvatarCard(settings: settings, controller: controller),
-          _HideBubbleCard(settings: settings, controller: controller),
-          _ColorsCard(settings: settings, controller: controller),
+          _TabBarHeader(controller: _tabController),
+          Expanded(
+            child: GestureDetector(
+              onHorizontalDragStart: (_) => _swipeDx = 0,
+              onHorizontalDragUpdate: (d) => _swipeDx += d.delta.dx,
+              onHorizontalDragEnd: (_) => _onSwipeEnd(),
+              child: IndexedStack(
+                index: _index,
+                sizing: StackFit.expand,
+                children: [
+                  _TabList(
+                    children: [
+                      _FunctionCard(settings: settings, controller: controller),
+                    ],
+                  ),
+                  _TabList(
+                    children: [
+                      _WidthCard(settings: settings, controller: controller),
+                      _AvatarCard(settings: settings, controller: controller),
+                      _HideBubbleCard(
+                        settings: settings,
+                        controller: controller,
+                      ),
+                    ],
+                  ),
+                  _TabList(
+                    children: [
+                      _ColorsCard(settings: settings, controller: controller),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The scrollable body of a single tab: the cards, with the page's standard
+/// 16px padding (plus the bottom safe-area inset).
+class _TabList extends StatelessWidget {
+  const _TabList({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: EdgeInsets.fromLTRB(
+        16,
+        16,
+        16,
+        16 + MediaQuery.paddingOf(context).bottom,
+      ),
+      children: children,
+    );
+  }
+}
+
+/// The full-width tab strip below the app bar (icon + label, 1px bottom
+/// divider), mirroring `mcp_server_settings_page`'s `_TabBarHeader`.
+class _TabBarHeader extends StatelessWidget {
+  const _TabBarHeader({required this.controller});
+
+  final TabController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        border: Border(bottom: BorderSide(color: theme.dividerColor)),
+      ),
+      child: TabBar(
+        controller: controller,
+        labelColor: theme.colorScheme.primary,
+        unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
+        indicatorColor: theme.colorScheme.primary,
+        indicatorSize: TabBarIndicatorSize.tab,
+        dividerColor: Colors.transparent,
+        labelStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+        unselectedLabelStyle: const TextStyle(fontSize: 14),
+        tabs: const [
+          _IconTab(icon: LucideIcons.sliders, label: '功能'),
+          _IconTab(icon: LucideIcons.layout, label: '外观'),
+          _IconTab(icon: LucideIcons.palette, label: '颜色'),
+        ],
+      ),
+    );
+  }
+}
+
+/// A 42px tab with the glyph to the left of the label.
+class _IconTab extends StatelessWidget {
+  const _IconTab({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tab(
+      height: 42,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 16),
+          const SizedBox(width: 6),
+          Flexible(child: Text(label, overflow: TextOverflow.ellipsis)),
         ],
       ),
     );
