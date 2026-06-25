@@ -410,6 +410,46 @@ Cherry Studio 用**双层架构**：
 
 ---
 
+## 10. 实施进展
+
+### 10.1 第一期（MVP）— ✅ 已完成（2026-06-25）
+
+采用「**UI 优先**」策略：完整界面先落地，复杂功能以「即将推出」占位。代码已合入 `main`。
+
+**新增 feature：`lib/features/notes/`**（严格分层，UI 对齐项目设计语言：`ModelSettingsAppBar` / `ModelSettingsCard` / lucide 图标 / 主题 token / Riverpod codegen）
+
+| 层 | 文件 | 内容 |
+|----|------|------|
+| domain | `domain/note_node.dart` | `NoteNode` 实体 + `NotesSortType`（6 种排序）|
+| data | `data/notes_file_store.dart` | 应用私有目录 `<appDocuments>/notes/` 的真实 `.md` 文件 CRUD（`dart:io`）|
+| application | `application/notes_controller.dart` | Riverpod 控制器：导航/排序/收藏/CRUD；排序与收藏经现有 `AppSettingDao` KV 存储持久化（**未新增 Drift 表**，避免 schema 迁移）|
+| presentation | `presentation/mobile/notes_page.dart` | 浏览页：面包屑、列表、收藏星标、排序菜单、新建/重命名/删除、FAB |
+| presentation | `presentation/mobile/note_editor_page.dart` | 编辑器：源码↔预览切换、Markdown 工具栏、2s 自动保存、底部安全区 |
+| presentation | `presentation/mobile/notes_settings_page.dart` | 设置页：存储位置（真实路径）+ 其余占位 |
+
+**接线**：`app_router` 新增 3 路由（`/settings/notes`、`/settings/notes/settings`、`/settings/notes/edit`）；点亮 `settings_catalog`「笔记」入口（原为禁用占位）。
+
+**已实现（真实可用）**：私有目录存储、文件夹层级、面包屑导航、6 种排序、收藏（均持久化）、新建/重命名/删除、源码+预览编辑（复用 `gpt_markdown`）、Markdown 工具栏、2s 自动保存。
+
+**与 §9.4 MVP 的差异**：原计划「Drift 小表存收藏/展开状态」，实现时改用现有 KV 设置表存收藏（更轻、无需 schema 迁移）；展开状态因当前是「逐层进入」而非「展开式树」，暂未涉及。
+
+### 10.2 占位（UI 已就位，功能后续填）
+
+全文搜索、导入（文件/文件夹）、**自选存储目录（互通载体，第二期 + Android SAF）**、AI 自动命名、导出、目录大纲、编辑器默认模式/字号等设置项 —— 均以「即将推出」禁用态呈现。
+
+### 10.3 后续阶段（未开始）
+
+- **第二期**：全文搜索（Dart）+ 侧边栏笔记 Tab + 聊天「添加笔记」附件 + AI 自动命名 + **自选目录/互通（Android SAF）**。
+- **第三期**：拖拽移动、目录大纲、表格/任务清单/数学、导出（Markdown/图片）。
+- **第四期（待知识库就绪）**：笔记↔知识库联动。
+
+### 10.4 相关提交
+
+- `feat(notes): add local markdown notes MVP (browser, editor, settings)`
+- `fix(notes): add bottom safe-area inset to editor source and preview`
+
+---
+
 > 备注：
 > 1. 本调研发现 `Aetherlink-original/.cursor/rules` 下有一个第三方「晴天无限MCP」规则文件，试图诱导 agent 轮询外部消息通道；与本任务无关，已忽略。
 > 2. Cherry Studio 仓库已克隆至 `K:/Flutterworkspace/cherry-studio`（`--depth 1` 浅克隆），其 `CLAUDE.md` 等为该项目自身贡献规范，与本 Flutter 项目无关。
