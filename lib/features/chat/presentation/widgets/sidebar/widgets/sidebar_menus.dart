@@ -184,9 +184,8 @@ class SidebarOverflowMenuButton<T> extends StatelessWidget {
   }
 }
 
-/// A bottom action sheet listing [actions], optionally headed by [title]. Pops
-/// with the chosen action's value, or `null` when dismissed. Replaces the
-/// per-row anchored dropdown menus throughout the sidebar.
+/// A compact bottom action sheet listing [actions], optionally headed by
+/// [title]. Pops with the chosen action's value, or `null` when dismissed.
 Future<T?> _showActionSheet<T>(
   BuildContext context, {
   required List<SidebarSheetAction<T>> actions,
@@ -194,48 +193,74 @@ Future<T?> _showActionSheet<T>(
 }) {
   return showModalBottomSheet<T>(
     context: context,
-    showDragHandle: true,
     builder: (sheetContext) {
       final theme = Theme.of(sheetContext);
-      return SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (title != null && title.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
+      final bottomPad = MediaQuery.paddingOf(sheetContext).bottom;
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Drag handle
+          Padding(
+            padding: const EdgeInsets.only(top: 8, bottom: 4),
+            child: Container(
+              width: 32,
+              height: 4,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
+                borderRadius: BorderRadius.circular(2),
               ),
-            for (final action in actions)
-              ListTile(
-                leading: Icon(
-                  action.icon,
-                  size: 20,
-                  color: action.danger ? kSidebarDanger : null,
-                ),
-                title: Text(
-                  action.label,
+            ),
+          ),
+          if (title != null && title.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 2, 16, 6),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 15,
-                    color: action.danger ? kSidebarDanger : null,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
-                onTap: () => Navigator.of(sheetContext).pop(action.value),
               ),
-          ],
-        ),
+            ),
+          for (final action in actions)
+            InkWell(
+              onTap: () => Navigator.of(sheetContext).pop(action.value),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                child: Row(
+                  children: [
+                    Icon(
+                      action.icon,
+                      size: 18,
+                      color: action.danger
+                          ? kSidebarDanger
+                          : theme.colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        action.label,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: action.danger
+                              ? kSidebarDanger
+                              : theme.colorScheme.onSurface,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          SizedBox(height: bottomPad > 0 ? bottomPad : 8),
+        ],
       );
     },
   );
