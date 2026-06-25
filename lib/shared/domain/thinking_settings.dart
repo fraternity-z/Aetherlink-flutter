@@ -44,7 +44,7 @@ abstract class ThinkingSettings with _$ThinkingSettings {
     @Default(ThinkingDisplayStyle.compact) ThinkingDisplayStyle displayStyle,
     // 思考完成后自动折叠，原版默认开。
     @Default(true) bool thoughtAutoCollapse,
-    // 思考过程内显示工具调用，原版默认开（Flutter 暂未接入，仅持久化）。
+    // 思考过程内显示工具调用，原版默认开。关闭后思考阶段的工具调用独立显示在消息下方。
     @Default(true) bool thinkingToolInline,
   }) = _ThinkingSettings;
 

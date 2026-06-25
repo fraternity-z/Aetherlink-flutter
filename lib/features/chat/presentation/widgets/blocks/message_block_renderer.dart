@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:aetherlink_flutter/app/di/thinking_settings_access.dart';
 import 'package:aetherlink_flutter/features/chat/domain/entities/message_block.dart';
 import 'package:aetherlink_flutter/features/chat/domain/entities/message_block_status.dart';
 import 'package:aetherlink_flutter/features/chat/domain/entities/message_status.dart';
@@ -25,7 +27,11 @@ import 'package:aetherlink_flutter/features/chat/presentation/widgets/blocks/web
 /// thinking block as lightweight `InlineToolChip`s, mirroring the web's
 /// `computeInlineToolGroups`. Once `MAIN_TEXT` appears the answer phase starts
 /// and subsequent tool blocks render as independent top-level cards.
-class MessageBlockRenderer extends StatelessWidget {
+///
+/// Gated on 思考过程设置 → 思考过程内显示工具调用 ([ThinkingSettings.thinkingToolInline]):
+/// when off, thinking-phase tools are not consumed and render top-level like
+/// any other tool block, mirroring the original's `thinkingToolInline` switch.
+class MessageBlockRenderer extends ConsumerWidget {
   const MessageBlockRenderer({
     required this.blocks,
     required this.messageStatus,
@@ -42,10 +48,16 @@ class MessageBlockRenderer extends StatelessWidget {
       messageStatus == MessageStatus.processing;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final toolInline = ref.watch(
+      thinkingSettingsProvider.select((s) => s.thinkingToolInline),
+    );
     // Phase-aware grouping: thinking-phase tool blocks are consumed and attached
     // to their corresponding ThinkingBlock instead of rendering top-level.
-    final (:consumedToolIds, :inlineToolMap) = _computeInlineToolGroups(blocks);
+    final (:consumedToolIds, :inlineToolMap) = _computeInlineToolGroups(
+      blocks,
+      inlineEnabled: toolInline,
+    );
 
     final grouped = _groupSimilarBlocks(blocks);
     final widgets = <Widget>[];
@@ -192,10 +204,19 @@ class CodeBlockViewBlock extends StatelessWidget {
 /// into the thinking block and removed from the top-level flow.
 ///
 /// Mirrors `computeInlineToolGroups` in the web's `MessageBlockRenderer.tsx`.
+///
+/// When [inlineEnabled] is false the grouping is skipped entirely, so no tool
+/// block is consumed and every tool renders as an independent top-level card.
 ({Set<String> consumedToolIds, Map<String, List<ToolBlock>> inlineToolMap})
-    _computeInlineToolGroups(List<MessageBlock> blocks) {
+    _computeInlineToolGroups(
+  List<MessageBlock> blocks, {
+  required bool inlineEnabled,
+}) {
   final consumedToolIds = <String>{};
   final inlineToolMap = <String, List<ToolBlock>>{};
+  if (!inlineEnabled) {
+    return (consumedToolIds: consumedToolIds, inlineToolMap: inlineToolMap);
+  }
   String? currentThinkingId;
 
   for (final block in blocks) {
