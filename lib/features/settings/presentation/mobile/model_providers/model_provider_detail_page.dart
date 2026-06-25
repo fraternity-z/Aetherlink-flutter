@@ -63,7 +63,6 @@ class _ModelProviderDetailPageState
   bool _kvLoaded = false;
   String _search = '';
   String? _testingModelId;
-  String? _groupPendingDelete;
 
   @override
   void initState() {
@@ -585,17 +584,14 @@ class _ModelProviderDetailPageState
                         ),
                       ),
                       IconButton(
-                        onPressed: () => _deleteGroup(provider, models),
-                        icon: Icon(
-                          _groupPendingDelete == groupName
-                              ? LucideIcons.check
-                              : LucideIcons.trash2,
-                          size: 14,
+                        onPressed: () => _deleteGroup(
+                          provider,
+                          models,
+                          groupName,
                         ),
+                        icon: const Icon(LucideIcons.trash2, size: 14),
                         color: theme.colorScheme.error,
-                        tooltip: _groupPendingDelete == groupName
-                            ? '确认删除整组'
-                            : '删除整组',
+                        tooltip: '删除整组',
                         constraints: const BoxConstraints(),
                         padding: const EdgeInsets.all(6),
                       ),
@@ -863,20 +859,36 @@ class _ModelProviderDetailPageState
         );
   }
 
-  /// 2-step group delete: the first tap arms [_groupPendingDelete]; a second tap
-  /// (on the same group) removes every model in it.
-  Future<void> _deleteGroup(ModelProvider provider, List<Model> models) async {
-    final names = groupModels<Model>(
-      [models.first],
-      idOf: (m) => m.id,
-      groupOf: (m) => m.group,
-      providerId: provider.id,
+  /// Delete an entire model group — shows a dialog, then offers undo via
+  /// SnackBar so the user can recover the deleted models.
+  Future<void> _deleteGroup(
+    ModelProvider provider,
+    List<Model> models,
+    String groupName,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('删除整组模型'),
+        content: Text('确定要删除「$groupName」中的 ${models.length} 个模型吗？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
     );
-    final groupName = names.first.$1;
-    if (_groupPendingDelete != groupName) {
-      setState(() => _groupPendingDelete = groupName);
-      return;
-    }
+    if (confirmed != true || !mounted) return;
+
+    final deletedModels = List<Model>.of(models);
     final ids = {for (final m in models) m.id};
     await ref
         .read(modelStoreProvider.notifier)
@@ -888,7 +900,34 @@ class _ModelProviderDetailPageState
             ],
           ),
         );
-    if (mounted) setState(() => _groupPendingDelete = null);
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('已删除「$groupName」(${deletedModels.length} 个模型)'),
+        duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: '撤销',
+          onPressed: () async {
+            final current = ref.read(
+              appModelProviderProvider(provider.id),
+            );
+            final currentProvider = current.maybeWhen(
+              data: (p) => p,
+              orElse: () => null,
+            );
+            if (currentProvider == null) return;
+            await ref
+                .read(modelStoreProvider.notifier)
+                .saveProvider(
+                  currentProvider.copyWith(
+                    models: [...currentProvider.models, ...deletedModels],
+                  ),
+                );
+          },
+        ),
+      ),
+    );
   }
 }
 
