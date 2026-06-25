@@ -68,47 +68,57 @@ class NotesPage extends ConsumerWidget {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 6, 6, 6),
-          child: Row(
-            children: [
-              Text(
-                '笔记文件',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: theme.colorScheme.onSurface,
+          padding: const EdgeInsets.fromLTRB(16, 2, 4, 2),
+          child: IconButtonTheme(
+            data: IconButtonThemeData(
+              style: IconButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.all(6),
+                minimumSize: const Size(36, 36),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+            child: Row(
+              children: [
+                Text(
+                  '笔记文件',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.onSurface,
+                  ),
                 ),
-              ),
-              const Spacer(),
-              IconButton(
-                icon: const Icon(LucideIcons.filePlus, size: 18),
-                color: theme.colorScheme.onSurfaceVariant,
-                tooltip: '新建笔记',
-                onPressed: () => _promptCreate(context, ref, isFolder: false),
-              ),
-              IconButton(
-                icon: const Icon(LucideIcons.folderPlus, size: 18),
-                color: theme.colorScheme.onSurfaceVariant,
-                tooltip: '新建文件夹',
-                onPressed: () => _promptCreate(context, ref, isFolder: true),
-              ),
-              _SortMenu(current: state.sort, onSelected: controller.setSort),
-              IconButton(
-                icon: const Icon(LucideIcons.star, size: 18),
-                color: theme.disabledColor,
-                tooltip: '收藏（即将推出）',
-                onPressed: null,
-              ),
-              IconButton(
-                icon: const Icon(LucideIcons.search, size: 18),
-                color: search.active
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.onSurfaceVariant,
-                tooltip: '搜索',
-                onPressed: () =>
-                    search.active ? searchCtrl.close() : searchCtrl.open(),
-              ),
-            ],
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(LucideIcons.filePlus, size: 18),
+                  color: theme.colorScheme.onSurfaceVariant,
+                  tooltip: '新建笔记',
+                  onPressed: () => _promptCreate(context, ref, isFolder: false),
+                ),
+                IconButton(
+                  icon: const Icon(LucideIcons.folderPlus, size: 18),
+                  color: theme.colorScheme.onSurfaceVariant,
+                  tooltip: '新建文件夹',
+                  onPressed: () => _promptCreate(context, ref, isFolder: true),
+                ),
+                _SortMenu(current: state.sort, onSelected: controller.setSort),
+                IconButton(
+                  icon: const Icon(LucideIcons.star, size: 18),
+                  color: theme.disabledColor,
+                  tooltip: '收藏（即将推出）',
+                  onPressed: null,
+                ),
+                IconButton(
+                  icon: const Icon(LucideIcons.search, size: 18),
+                  color: search.active
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurfaceVariant,
+                  tooltip: '搜索',
+                  onPressed: () =>
+                      search.active ? searchCtrl.close() : searchCtrl.open(),
+                ),
+              ],
+            ),
           ),
         ),
         Divider(height: 1, color: theme.dividerColor),
@@ -695,7 +705,7 @@ class _Breadcrumbs extends StatelessWidget {
     final crumbs = state.breadcrumbs;
     final parentPath = crumbs.length >= 2 ? crumbs[crumbs.length - 2].path : '';
     return SizedBox(
-      height: 44,
+      height: 36,
       child: Row(
         children: [
           if (!state.isRoot)
@@ -833,17 +843,17 @@ class _NoteRow extends StatelessWidget {
     final row = InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.fromLTRB(16, 7, 4, 7),
         child: Row(
           children: [
             Icon(
               node.isDirectory ? LucideIcons.folder : LucideIcons.fileText,
-              size: 22,
+              size: 19,
               color: node.isDirectory
                   ? NotesPage._folderColor
                   : NotesPage._fileColor,
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -853,16 +863,17 @@ class _NoteRow extends StatelessWidget {
                     node.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyLarge?.copyWith(
+                    style: theme.textTheme.bodyMedium?.copyWith(
                       fontWeight: FontWeight.w500,
                       color: theme.colorScheme.onSurface,
                     ),
                   ),
                   if (!node.isDirectory) ...[
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 1),
                     Text(
                       _formatTime(node.modifiedAt),
                       style: theme.textTheme.bodySmall?.copyWith(
+                        fontSize: 11,
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
@@ -894,6 +905,9 @@ class _NoteRow extends StatelessWidget {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
               tooltip: '更多',
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.all(6),
+              constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
               onPressed: onMenu,
             ),
           ],
@@ -1046,12 +1060,12 @@ class _ImportArea extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(8),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
           decoration: BoxDecoration(
             color: theme.colorScheme.onSurface.withValues(alpha: 0.03),
             borderRadius: BorderRadius.circular(8),
