@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:aetherlink_flutter/features/settings/application/font_settings_controller.dart';
@@ -294,6 +293,28 @@ class _FontPickerSheetState extends ConsumerState<FontPickerSheet> {
               ),
             ),
           ),
+          if (_source == FontSource.google)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Row(
+                children: [
+                  Icon(
+                    LucideIcons.info,
+                    size: 14,
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '多数 Google 字体仅含拉丁字形，中文会回退到系统字体',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.outline,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           if (_source == FontSource.local)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -378,17 +399,13 @@ class _FontPickerSheetState extends ConsumerState<FontPickerSheet> {
     );
   }
 
-  /// The family name to render the preview text with. Google fonts resolve via
-  /// [GoogleFonts] (kicking off the lazy fetch); system / local fonts use the
-  /// family name directly.
+  /// The family name to render the preview text with. System / local fonts use
+  /// the family name directly (cheap — already registered). Google fonts are
+  /// intentionally NOT resolved here: `GoogleFonts.getFont` kicks off a network
+  /// fetch + registration per call, and doing that for every row that scrolls
+  /// into view janks the list. Their preview falls back to the default font.
   String? _resolvePreview(FontSelection option) {
-    if (option.source == FontSource.google) {
-      try {
-        return GoogleFonts.getFont(option.family).fontFamily;
-      } catch (_) {
-        return null;
-      }
-    }
+    if (option.source == FontSource.google) return null;
     return option.family;
   }
 }

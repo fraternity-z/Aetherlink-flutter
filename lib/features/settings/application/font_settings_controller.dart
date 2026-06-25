@@ -78,10 +78,12 @@ class FontLoaderService {
           await _registerLocal(selection.family, selection.path);
         }
       case FontSource.google:
-        // Triggers the background download + registration; the family then
-        // resolves on the next frame.
+        // Kick off the download + registration and await it so the family
+        // resolves to real glyphs before the theme rebuilds (otherwise the
+        // first apply silently falls back to the platform default).
         try {
           GoogleFonts.getFont(selection.family);
+          await GoogleFonts.pendingFonts();
         } catch (_) {
           // Unknown Google family — leave it to fall back to the default.
         }
