@@ -33,7 +33,8 @@ class AgentPromptsSettingsPage extends StatefulWidget {
       _AgentPromptsSettingsPageState();
 }
 
-class _AgentPromptsSettingsPageState extends State<AgentPromptsSettingsPage> {
+class _AgentPromptsSettingsPageState extends State<AgentPromptsSettingsPage>
+    with SingleTickerProviderStateMixin {
   final TextEditingController _searchController = TextEditingController();
   final Set<String> _expandedCategories = <String>{'general'};
   String _query = '';
@@ -42,8 +43,37 @@ class _AgentPromptsSettingsPageState extends State<AgentPromptsSettingsPage> {
 
   late final List<AgentPromptCategory> _categories = getAgentPromptCategories();
 
+  // Two tabs: 变量注入 (system-prompt variables) and 提示词库 (search + catalog).
+  late final TabController _tabController = TabController(
+    length: 2,
+    vsync: this,
+  )..addListener(_onTabChanged);
+
+  // Drive the shown tab off the controller via an [IndexedStack] so content
+  // swaps the moment a tab is tapped or swiped (the indicator still slides),
+  // mirroring 外观设置.
+  int _index = 0;
+
+  // Horizontal swipe accumulator: a >60px drag jumps to the adjacent tab.
+  double _swipeDx = 0;
+
+  void _onTabChanged() {
+    if (_tabController.index != _index) {
+      setState(() => _index = _tabController.index);
+    }
+  }
+
+  void _onSwipeEnd() {
+    if (_swipeDx.abs() <= 60) return;
+    final next = (_tabController.index + (_swipeDx < 0 ? 1 : -1)).clamp(0, 1);
+    if (next != _tabController.index) _tabController.animateTo(next);
+  }
+
   @override
   void dispose() {
+    _tabController
+      ..removeListener(_onTabChanged)
+      ..dispose();
     _copiedResetTimer?.cancel();
     _searchController.dispose();
     super.dispose();
@@ -105,23 +135,39 @@ class _AgentPromptsSettingsPageState extends State<AgentPromptsSettingsPage> {
         ),
         title: const Text('智能体提示词集合'),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(12),
+      body: Column(
         children: [
-          const _SystemPromptVariablesPanel(),
-          const SizedBox(height: 12),
-          _searchCard(theme),
-          if (query.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            if (results.isNotEmpty)
-              _searchResultsCard(theme, results)
-            else
-              _noResultsCard(theme),
-          ] else
-            for (final category in _categories) ...[
-              const SizedBox(height: 12),
-              _categoryCard(theme, category),
-            ],
+          _TabBarHeader(controller: _tabController),
+          Expanded(
+            child: GestureDetector(
+              onHorizontalDragStart: (_) => _swipeDx = 0,
+              onHorizontalDragUpdate: (d) => _swipeDx += d.delta.dx,
+              onHorizontalDragEnd: (_) => _onSwipeEnd(),
+              child: IndexedStack(
+                index: _index,
+                sizing: StackFit.expand,
+                children: [
+                  const _TabList(children: [_SystemPromptVariablesPanel()]),
+                  _TabList(
+                    children: [
+                      _searchCard(theme),
+                      if (query.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        if (results.isNotEmpty)
+                          _searchResultsCard(theme, results)
+                        else
+                          _noResultsCard(theme),
+                      ] else
+                        for (final category in _categories) ...[
+                          const SizedBox(height: 12),
+                          _categoryCard(theme, category),
+                        ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -683,6 +729,91 @@ class _SystemPromptVariablesPanelState
           fontSize: 12,
           height: 1.35,
           color: theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+/// The scrollable body of a single tab: its cards, with the page's standard
+/// 16px gutter plus the bottom safe-area inset (matches 外观设置's `_TabList`).
+class _TabList extends StatelessWidget {
+  const _TabList({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: EdgeInsets.fromLTRB(
+        16,
+        4,
+        16,
+        12 + MediaQuery.paddingOf(context).bottom,
+      ),
+      children: children,
+    );
+  }
+}
+
+/// The tab strip below the app bar — the project's segmented pill style (a
+/// rounded bordered track holding pill tabs with a tinted rounded indicator),
+/// matching 外观设置.
+class _TabBarHeader extends StatelessWidget {
+  const _TabBarHeader({required this.controller});
+
+  final TabController controller;
+
+  static const List<(IconData, String)> _tabs = [
+    (LucideIcons.wrench, '变量注入'),
+    (LucideIcons.library, '提示词库'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: theme.dividerColor),
+          color: theme.colorScheme.surface,
+        ),
+        padding: const EdgeInsets.all(3),
+        child: TabBar(
+          controller: controller,
+          indicator: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            color: theme.colorScheme.primary.withValues(alpha: 0.12),
+          ),
+          indicatorSize: TabBarIndicatorSize.tab,
+          dividerHeight: 0,
+          labelColor: theme.colorScheme.primary,
+          unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
+          labelStyle: theme.textTheme.labelLarge?.copyWith(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+          unselectedLabelStyle: theme.textTheme.labelLarge?.copyWith(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+          labelPadding: const EdgeInsets.symmetric(horizontal: 8),
+          tabs: [
+            for (final (icon, label) in _tabs)
+              Tab(
+                height: 34,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, size: 15),
+                    const SizedBox(width: 5),
+                    Text(label),
+                  ],
+                ),
+              ),
+          ],
         ),
       ),
     );
