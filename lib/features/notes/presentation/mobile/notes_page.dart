@@ -15,6 +15,7 @@ import 'package:aetherlink_flutter/features/notes/application/notes_controller.d
 import 'package:aetherlink_flutter/features/notes/application/notes_search_controller.dart';
 import 'package:aetherlink_flutter/features/notes/domain/note_node.dart';
 import 'package:aetherlink_flutter/features/notes/domain/note_search_result.dart';
+import 'package:aetherlink_flutter/features/notes/presentation/mobile/note_image_export.dart';
 import 'package:aetherlink_flutter/features/settings/presentation/widgets/model_settings_widgets.dart';
 
 /// The notes hub — a file-tree browser over the on-device notes directory.
@@ -472,6 +473,15 @@ class NotesPage extends ConsumerWidget {
               },
             ),
             ListTile(
+              leading: const Icon(LucideIcons.image),
+              title: const Text('导出为图片'),
+              subtitle: const Text('渲染预览并保存 PNG'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                _exportNoteImage(context, ref, node);
+              },
+            ),
+            ListTile(
               leading: const Icon(LucideIcons.copy),
               title: const Text('复制 Markdown 到剪贴板'),
               onTap: () {
@@ -509,6 +519,46 @@ class NotesPage extends ConsumerWidget {
       if (context.mounted) _toast(context, '已导出');
     } catch (e) {
       if (context.mounted) _toast(context, '导出失败：$e');
+    }
+  }
+
+  Future<void> _exportNoteImage(
+    BuildContext context,
+    WidgetRef ref,
+    NoteNode node,
+  ) async {
+    try {
+      final content =
+          await ref.read(notesFileStoreProvider).read(node.relativePath);
+      if (content.trim().isEmpty) {
+        if (context.mounted) _toast(context, '空白笔记，无内容可导出');
+        return;
+      }
+      if (!context.mounted) return;
+      final bytes = await renderNoteAsPngBytes(
+        context,
+        title: node.title,
+        markdown: content,
+      );
+      if (bytes == null) {
+        if (context.mounted) _toast(context, '渲染图片失败');
+        return;
+      }
+      final path = await FilePicker.saveFile(
+        dialogTitle: '导出为图片',
+        fileName: '${node.title}.png',
+        type: FileType.custom,
+        allowedExtensions: const ['png'],
+        bytes: bytes,
+      );
+      if (path == null) return; // cancelled
+      // On desktop, FilePicker.saveFile doesn't write bytes — write manually.
+      if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+        await File(path).writeAsBytes(bytes);
+      }
+      if (context.mounted) _toast(context, '已导出图片');
+    } catch (e) {
+      if (context.mounted) _toast(context, '导出图片失败：$e');
     }
   }
 

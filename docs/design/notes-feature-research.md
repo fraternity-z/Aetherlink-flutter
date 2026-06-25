@@ -456,7 +456,7 @@ Cherry Studio 用**双层架构**：
 | 拖拽移动 | ✅ 已完成 | 长按拖拽笔记/文件夹，拖到文件夹行=移入、拖到面包屑（含「返回上级」）=移到该层；放下时高亮，禁止移入自身/子目录、禁止原地，收藏路径随之迁移 | `data/notes_file_store.dart`(`move`)、`application/notes_controller.dart`(`move`)、`presentation/mobile/notes_page.dart`(`_NoteRow`/`_Breadcrumbs`/`_DragChip`/`_canMoveInto`) |
 | 目录大纲 ToC | ✅ 已完成 | 编辑器顶栏「大纲」按钮 → 右侧抽屉列出 ATX 标题（按级缩进、跳过代码块）；点击切到源码模式并把光标定位到该标题、滚动到位。可在设置页「显示目录大纲」开关控制入口（持久化，默认开） | `domain/note_outline.dart`(`parseOutline`)、`application/notes_controller.dart`(`NotesShowOutline`)、`presentation/mobile/note_editor_page.dart`、`presentation/mobile/notes_settings_page.dart` |
 | 表格/任务清单/数学公式 | ✅ 已完成 | 渲染本就由 `AppMarkdown`(`gpt_markdown` + flutter_math) 支持（GFM 表格、`- [ ]` 任务清单、`$…$`/`$$…$$`）；本期补齐编辑器工具栏的**插入按钮**：任务清单、表格骨架、块级公式 | `presentation/mobile/note_editor_page.dart`(`_ToolbarAction.taskList/table/math`) |
-| 导出（图片） | ⬜ 未开始 | 可复用代码块全屏截图能力 | — |
+| 导出（图片） | ✅ 已完成 | 笔记菜单「导出 → 导出为图片」：离屏渲染 `AppMarkdown` 预览 → 截图为 PNG → 走 save-as 选位置保存（桌面端手动写字节），复用聊天图片导出的 overlay+RepaintBoundary 思路 | `presentation/mobile/note_image_export.dart`、`presentation/mobile/notes_page.dart`(`_exportNoteImage`) |
 | Android SAF 自选目录 | ⬜ 未开始 | 与工作区共用 | — |
 
 > 说明：导出第一片只做 Markdown（分享文件 / 复制内容），对齐 §9.2「第一期可只做 Markdown 分享」。图片及其他格式后续再做。
@@ -467,7 +467,7 @@ Cherry Studio 用**双层架构**：
 
 ### 10.5 后续阶段（未开始）
 
-- **第三期（剩余）**：导出（图片）、Android SAF 自选目录。
+- **第三期（剩余）**：Android SAF 自选目录（按既定决策，与「工作区」一并升级时共用，暂缓）。
 - **第四期（待知识库就绪）**：笔记↔知识库联动。
 
 ### 10.6 相关提交
@@ -491,6 +491,7 @@ Cherry Studio 用**双层架构**：
 - `feat(notes): table-of-contents outline drawer in the note editor`
 - `feat(notes): toolbar buttons for task lists, tables and math`
 - `feat(notes): drag notes/folders onto folders or breadcrumbs to move them`
+- `feat(notes): export a note as a PNG image via save-as`
 
 ---
 

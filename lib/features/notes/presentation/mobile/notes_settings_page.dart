@@ -154,7 +154,7 @@ class NotesSettingsPage extends ConsumerWidget {
           ),
           const SizedBox(height: 16),
           Text(
-            '更多功能（导出图片、Android 自选目录）将在后续版本陆续上线。',
+            'Android 任意目录（SAF）将在「工作区」功能就绪时一并上线。',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
