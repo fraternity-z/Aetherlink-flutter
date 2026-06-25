@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'package:aetherlink_flutter/app/di/notes_attachment_access.dart';
 import 'package:aetherlink_flutter/app/di/quick_phrases_access.dart';
 import 'package:aetherlink_flutter/core/platform/platform_providers.dart';
 import 'package:aetherlink_flutter/features/chat/application/chat_providers.dart';
@@ -108,8 +109,9 @@ class ChatInputActions implements InputBoxActions {
         _openVoiceInput(context);
       case InputBoxAction.reasoningEffort:
         showReasoningEffortPicker(context, _ref);
-      case InputBoxAction.knowledge:
       case InputBoxAction.note:
+        _attachNote(context);
+      case InputBoxAction.knowledge:
       case InputBoxAction.aiDebate:
       case InputBoxAction.multiModel:
         _comingSoon(context);
@@ -147,6 +149,15 @@ class ChatInputActions implements InputBoxActions {
     if (text != null && text.isNotEmpty) {
       insertText(text);
     }
+  }
+
+  /// Opens the note picker and stages the chosen note as a text attachment
+  /// (port of the original 添加笔记 menu item).
+  Future<void> _attachNote(BuildContext context) async {
+    final title = await _ref
+        .read(notesAttachmentServiceProvider)
+        .pickAndAttach(context);
+    if (title != null && context.mounted) _snack(context, '已添加笔记「$title」');
   }
 
   /// Picks image(s) — a single capture from the camera, or one or more from the
