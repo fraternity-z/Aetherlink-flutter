@@ -38,20 +38,21 @@ Future<McpToolResult> getWorkspaceFiles(
 ) async {
   final resolved = await resolveWorkspace(ref, args);
   final backend = resolved.backend;
-  final subPath = args['sub_path'] as String?;
+  final subPath = optionalString(args, 'sub_path');
   final dir = await navigateSubPath(backend, resolved.workspace.root, subPath);
 
   final recursive = optionalBool(args, 'recursive');
   if (recursive) {
     final maxDepth = (optionalInt(args, 'max_depth') ?? 3).clamp(1, 10);
-    final files = await listRecursive(backend, dir, maxDepth);
+    final listing = await listRecursive(backend, dir, maxDepth);
     return fileEditorOk({
       'workspace': resolved.workspace.name,
       'path': dir,
       'recursive': true,
       'maxDepth': maxDepth,
-      'count': files.length,
-      'files': files,
+      'count': listing.entries.length,
+      if (listing.truncated) 'truncated': true,
+      'files': listing.entries,
     });
   }
 
@@ -71,8 +72,15 @@ Future<McpToolResult> listFiles(Ref ref, Map<String, Object?> args) async {
   final path = requireString(args, 'path');
   final backend = await _backendFor(ref, path);
   if (optionalBool(args, 'recursive')) {
-    final files = await listRecursive(backend, path, 10);
-    return fileEditorOk({'path': path, 'count': files.length, 'files': files});
+    final maxDepth = (optionalInt(args, 'max_depth') ?? 5).clamp(1, 10);
+    final listing = await listRecursive(backend, path, maxDepth);
+    return fileEditorOk({
+      'path': path,
+      'maxDepth': maxDepth,
+      'count': listing.entries.length,
+      if (listing.truncated) 'truncated': true,
+      'files': listing.entries,
+    });
   }
   final entries = await backend.listDir(path);
   entries.sort(_dirsFirst);
@@ -89,14 +97,34 @@ Future<McpToolResult> readFile(Ref ref, Map<String, Object?> args) async {
   final files = args['files'];
   if (files is List && files.isNotEmpty) {
     final results = <Map<String, Object?>>[];
+    var errors = 0;
     for (final item in files) {
       if (item is! Map) continue;
       final m = item.map((k, v) => MapEntry(k.toString(), v as Object?));
-      final path = requireString(m, 'path');
-      results.add(await _readOne(ref, path, optionalInt(m, 'start_line'),
-          optionalInt(m, 'end_line')));
+      final path = optionalString(m, 'path');
+      if (path == null) {
+        errors++;
+        results.add({'status': 'error', 'error': '缺少必需参数: path'});
+        continue;
+      }
+      try {
+        final one = await _readOne(
+            ref, path, optionalInt(m, 'start_line'), optionalInt(m, 'end_line'));
+        results.add({'status': 'success', ...one});
+      } on FileEditorError catch (e) {
+        errors++;
+        results.add({'path': path, 'status': 'error', 'error': e.message});
+      } catch (e) {
+        errors++;
+        results.add({'path': path, 'status': 'error', 'error': '读取失败: $e'});
+      }
     }
-    return fileEditorOk({'count': results.length, 'files': results});
+    return fileEditorOk({
+      'count': results.length,
+      'successCount': results.length - errors,
+      'errorCount': errors,
+      'files': results,
+    });
   }
   final path = requireString(args, 'path');
   final one = await _readOne(
@@ -126,21 +154,18 @@ Future<McpToolResult> searchFiles(Ref ref, Map<String, Object?> args) async {
   final query = requireString(args, 'query');
   final backend = await _backendFor(ref, directory);
 
-  final searchType = switch ((args['search_type'] as String?)?.trim()) {
+  final searchType = switch (optionalString(args, 'search_type')?.toLowerCase()) {
     'content' => WorkspaceSearchType.content,
     'both' => WorkspaceSearchType.both,
     _ => WorkspaceSearchType.name,
   };
-  final fileTypes = (args['file_types'] as List?)
-      ?.map((e) => e.toString())
-      .where((e) => e.isNotEmpty)
-      .toList();
+  final fileTypes = optionalStringList(args, 'file_types');
 
   final results = await backend.searchFiles(
     directory,
     query,
     searchType: searchType,
-    fileTypes: fileTypes ?? const [],
+    fileTypes: fileTypes,
   );
   return fileEditorOk({
     'directory': directory,

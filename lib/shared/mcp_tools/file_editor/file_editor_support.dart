@@ -52,6 +52,29 @@ String requireString(Map<String, Object?> args, String key) {
   throw FileEditorError('缺少必需参数: $key');
 }
 
+/// Reads an optional string [key] from [args]; returns null when absent or
+/// blank, and tolerates non-string values by stringifying them (so a model
+/// passing the wrong JSON type doesn't blow up with a `CastError`).
+String? optionalString(Map<String, Object?> args, String key) {
+  final value = args[key];
+  if (value == null) return null;
+  final s = value is String ? value : value.toString();
+  return s.trim().isEmpty ? null : s;
+}
+
+/// Reads an optional list-of-strings [key] from [args]. Accepts a JSON array
+/// (each element stringified) or a single comma-separated string; returns an
+/// empty list when absent. Never throws on a wrong-typed value.
+List<String> optionalStringList(Map<String, Object?> args, String key) {
+  final value = args[key];
+  if (value == null) return const [];
+  final Iterable<Object?> raw = value is List ? value : value.toString().split(',');
+  return raw
+      .map((e) => e?.toString().trim() ?? '')
+      .where((e) => e.isNotEmpty)
+      .toList();
+}
+
 /// Reads an optional int [key] from [args] (accepts num or numeric string).
 int? optionalInt(Map<String, Object?> args, String key) {
   final value = args[key];
@@ -158,22 +181,42 @@ Map<String, Object?> entryJson(WorkspaceEntry e) => {
       if (e.isHidden) 'isHidden': true,
     };
 
+/// Hard cap on entries returned by [listRecursive], so a deep/huge workspace
+/// tree can't produce a giant payload that bloats the model context or stalls
+/// the UI. When hit, the walk stops early and the caller reports it truncated.
+const int kMaxRecursiveEntries = 2000;
+
+/// Result of [listRecursive]: the flattened entries plus whether the
+/// [kMaxRecursiveEntries] cap cut the walk short.
+class RecursiveListing {
+  const RecursiveListing(this.entries, {required this.truncated});
+  final List<Map<String, Object?>> entries;
+  final bool truncated;
+}
+
 /// Recursively lists [path] up to [maxDepth] levels deep, flattening into a
 /// list of entry JSON maps (directories first within each level). [maxDepth]
-/// of 1 means the immediate children only.
-Future<List<Map<String, Object?>>> listRecursive(
+/// of 1 means the immediate children only. Stops once [kMaxRecursiveEntries]
+/// entries are collected (`truncated == true`).
+Future<RecursiveListing> listRecursive(
   WorkspaceBackend backend,
   String path,
   int maxDepth,
 ) async {
   final out = <Map<String, Object?>>[];
+  var truncated = false;
   Future<void> walk(String dir, int depth) async {
+    if (truncated) return;
     final entries = await backend.listDir(dir);
     entries.sort((a, b) {
       if (a.isDirectory != b.isDirectory) return a.isDirectory ? -1 : 1;
       return a.name.compareTo(b.name);
     });
     for (final e in entries) {
+      if (out.length >= kMaxRecursiveEntries) {
+        truncated = true;
+        return;
+      }
       out.add(entryJson(e));
       if (e.isDirectory && depth < maxDepth) {
         await walk(e.path, depth + 1);
@@ -182,5 +225,5 @@ Future<List<Map<String, Object?>>> listRecursive(
   }
 
   await walk(path, 1);
-  return out;
+  return RecursiveListing(out, truncated: truncated);
 }
