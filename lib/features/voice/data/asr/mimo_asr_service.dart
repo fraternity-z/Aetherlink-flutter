@@ -116,8 +116,9 @@ class MimoAsrService {
             ],
           },
         ],
-        if (provider.language.isNotEmpty && provider.language != 'auto')
-          'asr_options': {'language': provider.language},
+        'asr_options': {
+          'language': provider.language.isNotEmpty ? provider.language : 'auto',
+        },
       };
 
       final response = await _dio.post<dynamic>(
