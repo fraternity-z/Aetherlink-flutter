@@ -24,7 +24,13 @@ class WorkspaceFileTree extends ConsumerStatefulWidget {
   ConsumerState<WorkspaceFileTree> createState() => _WorkspaceFileTreeState();
 }
 
-class _WorkspaceFileTreeState extends ConsumerState<WorkspaceFileTree> {
+class _WorkspaceFileTreeState extends ConsumerState<WorkspaceFileTree>
+    with AutomaticKeepAliveClientMixin {
+  // Keep the tree alive when the PageView swaps to the middle page on file
+  // select; otherwise this State is disposed and re-bound, collapsing the tree.
+  @override
+  bool get wantKeepAlive => true;
+
   // The tree root — the opened workspace's `root` (a `content://` URI for
   // SAF). `null` until a workspace is opened.
   String? _root;
@@ -70,9 +76,9 @@ class _WorkspaceFileTreeState extends ConsumerState<WorkspaceFileTree> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading.remove(path));
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('列目录失败 · $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('列目录失败 · $e')));
     }
   }
 
@@ -102,9 +108,9 @@ class _WorkspaceFileTreeState extends ConsumerState<WorkspaceFileTree> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading.remove(path));
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('列目录失败 · $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('列目录失败 · $e')));
     }
   }
 
@@ -165,6 +171,7 @@ class _WorkspaceFileTreeState extends ConsumerState<WorkspaceFileTree> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final theme = Theme.of(context);
     final topPad = MediaQuery.paddingOf(context).top + widget.topInset + 8;
     final selectedPath = ref.watch(selectedWorkspaceFileProvider)?.path;
@@ -314,9 +321,9 @@ class _TreeRow {
   }) : isLoading = false;
 
   const _TreeRow.loading(this.depth)
-      : entry = null,
-        expanded = false,
-        isLoading = true;
+    : entry = null,
+      expanded = false,
+      isLoading = true;
 
   final WorkspaceEntry? entry;
   final int depth;
@@ -427,11 +434,7 @@ class _LoadingRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: EdgeInsets.only(
-        left: 12.0 + depth * 16 + 18,
-        top: 8,
-        bottom: 8,
-      ),
+      padding: EdgeInsets.only(left: 12.0 + depth * 16 + 18, top: 8, bottom: 8),
       child: const Align(
         alignment: Alignment.centerLeft,
         child: SizedBox(

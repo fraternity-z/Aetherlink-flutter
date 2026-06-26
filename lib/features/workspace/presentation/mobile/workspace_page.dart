@@ -33,16 +33,35 @@ class _WorkspacePageState extends ConsumerState<WorkspacePage> {
   static const int _initialPage = 1;
   static const int _pageCount = 3;
 
-  // 顶部控制行(返回 + 页码点)的高度,起始屏内容据此留出顶部内边距,避免被遮挡。
-  static const double _topBarHeight = 44;
+  // 顶部返回按钮的高度,内容据此留出顶部内边距,避免被遮挡。
+  static const double _topBarHeight = 38;
 
-  late final PageController _controller =
-      PageController(initialPage: _initialPage);
+  late final PageController _controller = PageController(
+    initialPage: _initialPage,
+  );
 
   int _page = _initialPage;
 
   // 右页(第三页)暂为纯色占位,等终端做了再替换。
   static const Color _thirdColor = Color(0xFF4A2D5F);
+
+  void _goToMiddle() {
+    if (!_controller.hasClients) return;
+    _controller.animateToPage(
+      _initialPage,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  // 在侧页(文件树 / 第三页)按返回时,先回到中间页;已在中间页才真正退出工作区。
+  void _onBack() {
+    if (_page != _initialPage) {
+      _goToMiddle();
+    } else {
+      context.pop();
+    }
+  }
 
   @override
   void dispose() {
@@ -76,50 +95,51 @@ class _WorkspacePageState extends ConsumerState<WorkspacePage> {
 
     // Edge-to-edge: 页面铺满整屏(延伸到状态栏/导航栏后面),不包 SafeArea。
     // 只给顶部控制行单独保留安全区内边距,避免被状态栏遮挡。
-    return Scaffold(
-      body: Stack(
-        children: [
-          PageView.builder(
-            controller: _controller,
-            itemCount: _pageCount,
-            onPageChanged: (i) => setState(() => _page = i),
-            itemBuilder: (context, i) {
-              switch (i) {
-                case 0:
-                  return const WorkspaceFileTree(topInset: _topBarHeight);
-                case 1:
-                  return const _WorkspaceMiddlePage(topInset: _topBarHeight);
-                default:
-                  return const _ColorPlaceholder(
-                    label: '第三页(待定)',
-                    color: _thirdColor,
-                  );
-              }
-            },
-          ),
-          // 顶部返回 + 页码指示，方便看清当前停在哪一页。
-          SafeArea(
-            bottom: false,
-            child: SizedBox(
-              height: _topBarHeight,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
-                child: Row(
-                  children: [
-                    _CircleButton(
+    return PopScope(
+      canPop: _page == _initialPage,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _goToMiddle();
+      },
+      child: Scaffold(
+        body: Stack(
+          children: [
+            PageView.builder(
+              controller: _controller,
+              itemCount: _pageCount,
+              onPageChanged: (i) => setState(() => _page = i),
+              itemBuilder: (context, i) {
+                switch (i) {
+                  case 0:
+                    return const WorkspaceFileTree(topInset: _topBarHeight);
+                  case 1:
+                    return const _WorkspaceMiddlePage(topInset: _topBarHeight);
+                  default:
+                    return const _ColorPlaceholder(
+                      label: '第三页(待定)',
+                      color: _thirdColor,
+                    );
+                }
+              },
+            ),
+            // 顶部返回按钮，悬浮在内容左上角。
+            SafeArea(
+              bottom: false,
+              child: SizedBox(
+                height: _topBarHeight,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: _CircleButton(
                       icon: LucideIcons.arrowLeft,
-                      onTap: () => context.pop(),
+                      onTap: _onBack,
                     ),
-                    const Spacer(),
-                    _PageDots(count: _pageCount, active: _page),
-                    const Spacer(),
-                    const SizedBox(width: 36),
-                  ],
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -239,7 +259,9 @@ class _WorkspaceStartPage extends ConsumerWidget {
     try {
       final picked = await ref.read(localSafBackendProvider).pickDirectory();
       if (picked == null) return; // 用户取消
-      final workspace = await ref.read(workspaceStoreProvider.notifier).open(
+      final workspace = await ref
+          .read(workspaceStoreProvider.notifier)
+          .open(
             name: picked.name,
             backendType: WorkspaceBackendType.localSaf,
             root: picked.root,
@@ -259,7 +281,9 @@ class _WorkspaceStartPage extends ConsumerWidget {
   // 从「最近打开」继续:复用 store.open(backendType+root 命中则置顶并刷新时间),
   // 再设为当前工作区。SAF 的持久化授权还在的话,文件树/查看器即可直接读取。
   Future<void> _openRecent(WidgetRef ref, Workspace workspace) async {
-    final stored = await ref.read(workspaceStoreProvider.notifier).open(
+    final stored = await ref
+        .read(workspaceStoreProvider.notifier)
+        .open(
           name: workspace.name,
           backendType: workspace.backendType,
           root: workspace.root,
@@ -307,8 +331,9 @@ class _BackendCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final enabled = !comingSoon;
-    final fg =
-        enabled ? theme.colorScheme.onSurface : theme.colorScheme.onSurfaceVariant;
+    final fg = enabled
+        ? theme.colorScheme.onSurface
+        : theme.colorScheme.onSurfaceVariant;
 
     return Material(
       color: theme.colorScheme.surfaceContainerHighest,
@@ -563,34 +588,6 @@ class _CircleButton extends StatelessWidget {
           child: Icon(icon, size: 20, color: Colors.white),
         ),
       ),
-    );
-  }
-}
-
-class _PageDots extends StatelessWidget {
-  const _PageDots({required this.count, required this.active});
-
-  final int count;
-  final int active;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (int i = 0; i < count; i++)
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 3),
-            width: i == active ? 18 : 8,
-            height: 8,
-            decoration: BoxDecoration(
-              color: i == active
-                  ? Colors.white
-                  : Colors.white.withValues(alpha: 0.4),
-              borderRadius: BorderRadius.circular(4),
-            ),
-          ),
-      ],
     );
   }
 }
