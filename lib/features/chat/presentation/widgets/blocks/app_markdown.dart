@@ -161,6 +161,7 @@ class MarkdownTable extends StatefulWidget {
 
 class _MarkdownTableState extends State<MarkdownTable> {
   final ScrollController _controller = ScrollController();
+  bool _collapsed = false;
 
   @override
   void dispose() {
@@ -318,6 +319,14 @@ class _MarkdownTableState extends State<MarkdownTable> {
                   ),
                   child: Row(
                     children: [
+                      _ToolbarIconButton(
+                        icon: _collapsed
+                            ? LucideIcons.chevronRight
+                            : LucideIcons.chevronDown,
+                        tooltip: _collapsed ? '展开表格' : '折叠表格',
+                        onTap: () => setState(() => _collapsed = !_collapsed),
+                      ),
+                      const SizedBox(width: 8),
                       Text(
                         '表格',
                         style: TextStyle(
@@ -351,10 +360,12 @@ class _MarkdownTableState extends State<MarkdownTable> {
                     ],
                   ),
                 ),
-                // Divider between toolbar and table content
-                Divider(height: 1, thickness: 0.5, color: borderColor),
-                // Table content (flex-filled when it fits, scrollable when wide)
-                tableContent,
+                // Divider + table content, hidden when collapsed.
+                if (!_collapsed) ...[
+                  Divider(height: 1, thickness: 0.5, color: borderColor),
+                  // Table content (flex-filled when it fits, scrollable when wide)
+                  tableContent,
+                ],
               ],
             ),
           ),
