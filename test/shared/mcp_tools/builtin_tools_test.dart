@@ -5,30 +5,40 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:aetherlink_flutter/shared/domain/mcp_tool.dart';
 import 'package:aetherlink_flutter/shared/mcp_tools/builtin_tool_catalog.dart';
 import 'package:aetherlink_flutter/shared/mcp_tools/builtin_tools.dart';
+import 'package:aetherlink_flutter/shared/mcp_tools/file_editor/file_editor_tools.dart';
+// runCalculatorTool / runTimeTool live in this barrel; the dispatch tests below
+// call them directly.
+import 'package:aetherlink_flutter/shared/mcp_tools/tools/tools.dart';
 
 Map<String, Object?> _json(McpToolResult result) =>
     jsonDecode(result.text) as Map<String, Object?>;
 
 void main() {
   group('runBuiltinTool dispatch', () {
-    test('routes only the locally-runnable servers', () {
+    test('routes only the locally-runnable servers', () async {
       expect(
-        runBuiltinTool('@aether/calculator', 'calculate', {
+        await runBuiltinTool('@aether/calculator', 'calculate', {
           'expression': '1+1',
         }),
         isNotNull,
       );
       expect(
-        runBuiltinTool('@aether/time', 'get_current_time', const {}),
+        await runBuiltinTool('@aether/time', 'get_current_time', const {}),
         isNotNull,
       );
       // Native-plugin and external servers are not locally runnable.
       expect(
-        runBuiltinTool('@aether/calendar', 'get_calendars', const {}),
+        await runBuiltinTool('@aether/calendar', 'get_calendars', const {}),
         isNull,
       );
-      expect(runBuiltinTool('@aether/alarm', 'show_alarms', const {}), isNull);
-      expect(runBuiltinTool('external-xyz', 'whatever', const {}), isNull);
+      expect(
+        await runBuiltinTool('@aether/alarm', 'show_alarms', const {}),
+        isNull,
+      );
+      expect(
+        await runBuiltinTool('external-xyz', 'whatever', const {}),
+        isNull,
+      );
     });
 
     test('unknown calculator tool is an error result', () {
@@ -315,8 +325,36 @@ void main() {
       expect(builtinToolsFor('unknown-server'), isEmpty);
     });
 
-    test('only calculator and time are flagged locally runnable', () {
-      expect(kLocallyRunnableBuiltins, {'@aether/calculator', '@aether/time'});
+    test('the locally-runnable builtins are the pure-compute / HTTP servers', () {
+      expect(kLocallyRunnableBuiltins, {
+        '@aether/calculator',
+        '@aether/time',
+        '@aether/searxng',
+        '@aether/fetch',
+        '@aether/metaso-search',
+        '@aether/grok-search',
+      });
+    });
+
+    test('file-editor exposes run_command requiring a command (SSH-3)', () {
+      final tool = kBuiltinMcpTools['@aether/file-editor']!
+          .firstWhere((t) => t.name == 'run_command');
+      final schema = tool.inputSchema;
+      expect(schema['required'], contains('command'));
+      final props = schema['properties'] as Map<String, Object?>;
+      expect(props.keys, containsAll(['command', 'workspace', 'cwd', 'timeout_ms']));
+    });
+  });
+
+  group('file-editor risk classification', () {
+    test('run_command is high-risk and needs HITL confirmation', () {
+      expect(fileEditorRiskLevel('run_command'), FileEditorRisk.high);
+      expect(fileEditorNeedsConfirmation('run_command'), isTrue);
+    });
+
+    test('read-only tools need no confirmation', () {
+      expect(fileEditorRiskLevel('read_file'), isNull);
+      expect(fileEditorNeedsConfirmation('read_file'), isFalse);
     });
   });
 }

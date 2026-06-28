@@ -5,11 +5,13 @@
 // SSH library keeps its blast radius at this one file. A guard test
 // (test/architecture/ssh_import_boundary_test.dart) enforces this.
 //
-// **SSH-1: read-only browse.** Lazily opens (and reuses) one SSHClient + SFTP
-// channel per connection, verifies the host key TOFU-style, and implements the
-// read surface (listDir / readFile / readFileBytes / getFileInfo / verifyAccess
-// + readFileRange / getLineCount via the shared workspace_text_ops). Writes /
-// edits / exec stay UnsupportedError (inherited) until SSH-2 / SSH-3.
+// Lazily opens (and reuses) one SSHClient + SFTP channel per connection and
+// verifies the host key TOFU-style. Implements:
+//   · SSH-1 reads   — listDir / readFile / readFileBytes / getFileInfo /
+//     verifyAccess (+ readFileRange / getLineCount via workspace_text_ops);
+//   · SSH-2 writes  — the SFTP write family + text edits (read-modify-write);
+//   · SSH-3 exec    — one-shot, non-PTY `exec()` over an exec channel.
+// SSH-3b (interactive PTY shell) lands next.
 
 import 'dart:async';
 import 'dart:convert';
@@ -683,6 +685,91 @@ class RemoteSshBackend extends WorkspaceBackend {
     }
   }
 
+  // ===== command execution (SSH-3) =====
+
+  @override
+  Future<WorkspaceExecResult> exec(
+    String command,
+    {String? workingDirectory, Duration? timeout}) async {
+    final client = await _sshClient();
+    // Run under the requested cwd via `cd` (dartssh2 has no per-exec cwd); the
+    // path is single-quoted so spaces / specials don't break out. The command
+    // itself is the caller's responsibility (it's HITL-gated upstream).
+    final full = (workingDirectory != null && workingDirectory.isNotEmpty)
+        ? 'cd ${_shellQuote(workingDirectory)} && $command'
+        : command;
+
+    final SSHSession session;
+    try {
+      session = await client.execute(full);
+    } catch (e) {
+      throw SshBackendException('命令执行失败 · $e');
+    }
+
+    final out = BytesBuilder(copy: false);
+    final err = BytesBuilder(copy: false);
+    final outSub = session.stdout.listen(out.add);
+    final errSub = session.stderr.listen(err.add);
+
+    var timedOut = false;
+    try {
+      if (timeout != null) {
+        await session.done.timeout(timeout, onTimeout: () {
+          timedOut = true;
+          session.kill(SSHSignal.KILL);
+        });
+      } else {
+        await session.done;
+      }
+    } finally {
+      await outSub.cancel();
+      await errSub.cancel();
+    }
+
+    return WorkspaceExecResult(
+      stdout: utf8.decode(out.takeBytes(), allowMalformed: true),
+      stderr: utf8.decode(err.takeBytes(), allowMalformed: true),
+      exitCode: session.exitCode ?? -1,
+      timedOut: timedOut,
+    );
+  }
+
+  @override
+  Future<WorkspaceShellSession> startShell({
+    int columns = 80,
+    int rows = 24,
+    String? workingDirectory,
+  }) async {
+    final client = await _sshClient();
+    final SSHSession session;
+    try {
+      session = await client.shell(
+        pty: SSHPtyConfig(width: columns, height: rows),
+      );
+    } catch (e) {
+      throw SshBackendException('打开终端失败 · $e');
+    }
+    if (workingDirectory != null && workingDirectory.isNotEmpty) {
+      // cd into the workspace root before handing the prompt to the user.
+      session.write(
+        Uint8List.fromList(utf8.encode('cd ${_shellQuote(workingDirectory)}\n')),
+      );
+    }
+    return _SshShellSession(session);
+  }
+
+  /// Ensures the transport is up (reusing the same lazy connect as SFTP) and
+  /// returns the live [SSHClient] for opening exec / shell channels.
+  Future<SSHClient> _sshClient() async {
+    await _sftpClient();
+    final client = _client;
+    if (client == null) throw const SshBackendException('SSH 未连接');
+    return client;
+  }
+
+  // POSIX single-quote escaping: wrap in '…' and replace embedded ' with '\''.
+  static String _shellQuote(String s) => "'${s.replaceAll("'", r"'\''")}'";
+
   /// Tears down the transport and the change bus (provider teardown). Safe to
   /// call when never connected.
   Future<void> dispose() async {
@@ -744,5 +831,49 @@ class RemoteSshBackend extends WorkspaceBackend {
       sftp?.close();
       client?.close();
     }
+  }
+}
+
+/// Backend-neutral wrapper over a dartssh2 [SSHSession] opened as a PTY shell
+/// (设计文档 §8.2). Merges stdout + stderr into one broadcast byte stream and
+/// maps write / resize / close onto the session. Keeps dartssh2 out of the UI.
+class _SshShellSession implements WorkspaceShellSession {
+  _SshShellSession(this._session) {
+    _outSub = _session.stdout.listen(_out.add, onError: (_) {});
+    _errSub = _session.stderr.listen(_out.add, onError: (_) {});
+    // Close the output stream once the remote shell exits.
+    _session.done.whenComplete(() {
+      if (!_out.isClosed) _out.close();
+    });
+  }
+
+  final SSHSession _session;
+  final StreamController<List<int>> _out =
+      StreamController<List<int>>.broadcast();
+  StreamSubscription<Uint8List>? _outSub;
+  StreamSubscription<Uint8List>? _errSub;
+
+  @override
+  Stream<List<int>> get output => _out.stream;
+
+  @override
+  void write(List<int> data) => _session.write(Uint8List.fromList(data));
+
+  @override
+  void resize(int columns, int rows) =>
+      _session.resizeTerminal(columns, rows);
+
+  @override
+  Future<void> get done => _session.done;
+
+  @override
+  int? get exitCode => _session.exitCode;
+
+  @override
+  Future<void> close() async {
+    await _outSub?.cancel();
+    await _errSub?.cancel();
+    _session.close();
+    if (!_out.isClosed) await _out.close();
   }
 }
