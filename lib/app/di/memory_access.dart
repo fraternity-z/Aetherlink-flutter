@@ -12,6 +12,7 @@ import 'package:aetherlink_flutter/features/chat/domain/gateways/llm_stream_chun
 import 'package:aetherlink_flutter/features/memory/application/memory_providers.dart';
 import 'package:aetherlink_flutter/features/memory/application/memory_settings_controller.dart';
 import 'package:aetherlink_flutter/features/memory/data/chat_memory_store.dart';
+import 'package:aetherlink_flutter/features/memory/data/datasources/local/sqlite_vec_service.dart';
 import 'package:aetherlink_flutter/features/memory/data/embedding_service.dart';
 import 'package:aetherlink_flutter/features/memory/domain/embedding_model_key.dart';
 import 'package:aetherlink_flutter/features/memory/domain/memory_consolidation.dart';
@@ -41,6 +42,12 @@ part 'memory_access.g.dart';
 @Riverpod(keepAlive: true)
 ChatMemoryStore chatMemoryStore(Ref ref) =>
     ChatMemoryStore(ref.watch(appDatabaseProvider).memoryDao);
+
+/// The experimental native-vector search service (sqlite-vec). Kept alive so the
+/// extension is probed/loaded at most once per process. Off unless 设置 ›
+/// useSqliteVec is enabled, and always degrades to the Dart cosine path.
+@Riverpod(keepAlive: true)
+SqliteVecService sqliteVecService(Ref ref) => SqliteVecService();
 
 /// The result of resolving what to inject for a turn: the `<user_memories>`
 /// [section] string (null when nothing is injected) plus the exact memory
@@ -242,6 +249,12 @@ Future<List<MemoryItem>> _semanticTopK(
       return _keywordTopK(candidates, query, settings.topK);
     }
     final pool = resolved.values.toList();
+    // 实验性: native sqlite-vec KNN (pure-vector). Any miss/unavailability falls
+    // through to the Dart cosine/activation path below.
+    if (settings.useSqliteVec) {
+      final vecHits = _sqliteVecTopK(ref, queryVector, pool, settings.topK);
+      if (vecHits != null && vecHits.isNotEmpty) return vecHits;
+    }
     final ranked = settings.activationRanking
         ? rankByActivation(
             queryVector,
@@ -258,6 +271,33 @@ Future<List<MemoryItem>> _semanticTopK(
     // Embedding is best-effort; never break a turn over a retrieval failure.
     return _keywordTopK(candidates, query, settings.topK);
   }
+}
+
+/// 实验性: selects the top-[topK] of [pool] nearest to [queryVector] via the
+/// native sqlite-vec KNN service, preserving its nearest-first order. Returns
+/// `null` (caller falls back to the Dart path) when sqlite-vec is unavailable or
+/// produced no hits. Candidates without an embedding are excluded from the index.
+List<MemoryItem>? _sqliteVecTopK(
+  Ref ref,
+  List<double> queryVector,
+  List<MemoryItem> pool,
+  int topK,
+) {
+  final ids = ref.read(sqliteVecServiceProvider).topKNearest(
+    query: queryVector,
+    items: [
+      for (final m in pool)
+        if (m.embedding != null && m.embedding!.isNotEmpty)
+          (id: m.id, vector: m.embedding!),
+    ],
+    k: topK,
+  );
+  if (ids == null || ids.isEmpty) return null;
+  final byId = {for (final m in pool) m.id: m};
+  return [
+    for (final id in ids)
+      if (byId[id] != null) byId[id]!,
+  ];
 }
 
 /// Resolves the persisted [key] to a send-ready embedding [Model] (provider

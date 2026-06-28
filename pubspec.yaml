@@ -40,6 +40,10 @@ dependencies:
   socks5_proxy: ^2.1.1
   drift: ^2.34.0
   sqlite3_flutter_libs: ^0.6.0+eol
+  sqlite3: ^3.3.3
+  # 实验性 native-vector search (sqlite-vec). Pinned to an alpha; gated behind the
+  # default-off useSqliteVec flag and always degrades to the Dart cosine path.
+  sqlite_vec: 0.1.7-alpha.3
   path: ^1.9.1
   path_provider: ^2.1.5
   freezed_annotation: ^3.1.0

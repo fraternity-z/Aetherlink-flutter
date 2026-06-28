@@ -82,4 +82,8 @@ class MemorySettingsController extends _$MemorySettingsController
   /// Toggles ACT-R activation-weighted ranking (off → pure cosine top-k).
   void setActivationRanking(bool value) =>
       persist(state.copyWith(activationRanking: value));
+
+  /// 实验性: toggles native sqlite-vec KNN retrieval (off → Dart cosine path).
+  void setUseSqliteVec(bool value) =>
+      persist(state.copyWith(useSqliteVec: value));
 }
