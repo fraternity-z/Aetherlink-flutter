@@ -58,10 +58,28 @@ class RemoteSshBackend extends WorkspaceBackend {
   bool _alive = false;
   Future<SftpClient>? _connecting;
 
-  // Forward-compatible in-app change bus (same contract as LocalSafBackend).
-  // SSH-2 mutations will `_emit` here. Broadcast so late subscribers don't error.
+  // In-app change bus (same contract as LocalSafBackend): every mutation made
+  // through this backend is emitted so the tree / editor refresh live.
+  // Broadcast so late subscribers don't error.
   final StreamController<WorkspaceChangeEvent> _changes =
       StreamController<WorkspaceChangeEvent>.broadcast();
+
+  void _emit(
+    WorkspaceChangeKind kind,
+    String path, {
+    String? fromPath,
+    String? parentPath,
+  }) {
+    if (!_changes.hasListener) return;
+    _changes.add(
+      WorkspaceChangeEvent(
+        kind: kind,
+        path: path,
+        fromPath: fromPath,
+        parentPath: parentPath,
+      ),
+    );
+  }
 
   @override
   WorkspaceCapabilities get capabilities => const WorkspaceCapabilities(
@@ -286,6 +304,383 @@ class RemoteSshBackend extends WorkspaceBackend {
     }
     final i = p.lastIndexOf('/');
     return i < 0 ? p : p.substring(i + 1);
+  }
+
+  static String _dirname(String path) {
+    var p = path;
+    while (p.length > 1 && p.endsWith('/')) {
+      p = p.substring(0, p.length - 1);
+    }
+    final i = p.lastIndexOf('/');
+    if (i < 0) return '.';
+    if (i == 0) return '/';
+    return p.substring(0, i);
+  }
+
+  // ===== mutations =====
+
+  @override
+  Future<void> writeFile(String path, String content, {bool append = false}) async {
+    final sftp = await _sftpClient();
+    final mode = append
+        ? SftpFileOpenMode.write | SftpFileOpenMode.create | SftpFileOpenMode.append
+        : SftpFileOpenMode.write |
+            SftpFileOpenMode.create |
+            SftpFileOpenMode.truncate;
+    final file = await sftp.open(path, mode: mode);
+    try {
+      await file.writeBytes(Uint8List.fromList(utf8.encode(content)));
+    } finally {
+      await file.close();
+    }
+    _emit(WorkspaceChangeKind.modified, path);
+  }
+
+  @override
+  Future<String> createFile(
+    String parentPath,
+    String name, {
+    String? content,
+  }) async {
+    final sftp = await _sftpClient();
+    final path = _join(parentPath, name);
+    final file = await sftp.open(
+      path,
+      mode: SftpFileOpenMode.write |
+          SftpFileOpenMode.create |
+          SftpFileOpenMode.exclusive,
+    );
+    try {
+      if (content != null && content.isNotEmpty) {
+        await file.writeBytes(Uint8List.fromList(utf8.encode(content)));
+      }
+    } finally {
+      await file.close();
+    }
+    _emit(WorkspaceChangeKind.created, path, parentPath: parentPath);
+    return path;
+  }
+
+  @override
+  Future<String> createDirectory(
+    String parentPath,
+    String name, {
+    bool recursive = false,
+  }) async {
+    final sftp = await _sftpClient();
+    final path = _join(parentPath, name);
+    if (!recursive) {
+      await sftp.mkdir(path);
+    } else {
+      // Create each missing ancestor in turn; ignore "already exists" failures.
+      final segments = path.split('/');
+      var current = path.startsWith('/') ? '' : '.';
+      for (final seg in segments) {
+        if (seg.isEmpty) continue;
+        current = current.isEmpty ? '/$seg' : _join(current, seg);
+        try {
+          await sftp.mkdir(current);
+        } catch (_) {
+          // Most likely already exists — keep going.
+        }
+      }
+    }
+    _emit(WorkspaceChangeKind.created, path, parentPath: parentPath);
+    return path;
+  }
+
+  @override
+  Future<void> delete(
+    String path, {
+    bool isDirectory = false,
+    bool recursive = false,
+  }) async {
+    final sftp = await _sftpClient();
+    if (!isDirectory) {
+      await sftp.remove(path);
+    } else if (!recursive) {
+      await sftp.rmdir(path);
+    } else {
+      await _deleteTree(sftp, path);
+    }
+    _emit(WorkspaceChangeKind.deleted, path);
+  }
+
+  Future<void> _deleteTree(SftpClient sftp, String dir) async {
+    for (final n in await sftp.listdir(dir)) {
+      if (n.filename == '.' || n.filename == '..') continue;
+      final child = _join(dir, n.filename);
+      if (n.attr.isDirectory) {
+        await _deleteTree(sftp, child);
+      } else {
+        await sftp.remove(child);
+      }
+    }
+    await sftp.rmdir(dir);
+  }
+
+  @override
+  Future<String> rename(String path, String newName) async {
+    final sftp = await _sftpClient();
+    final newPath = _join(_dirname(path), newName);
+    await sftp.rename(path, newPath);
+    _emit(WorkspaceChangeKind.moved, newPath, fromPath: path);
+    return newPath;
+  }
+
+  @override
+  Future<String> move(String sourcePath, String destinationParent) async {
+    final sftp = await _sftpClient();
+    final newPath = _join(destinationParent, _basename(sourcePath));
+    await sftp.rename(sourcePath, newPath);
+    _emit(
+      WorkspaceChangeKind.moved,
+      newPath,
+      fromPath: sourcePath,
+      parentPath: destinationParent,
+    );
+    return newPath;
+  }
+
+  @override
+  Future<String> copy(
+    String sourcePath,
+    String destinationParent, {
+    String? newName,
+    bool overwrite = false,
+  }) async {
+    final sftp = await _sftpClient();
+    final destPath = _join(destinationParent, newName ?? _basename(sourcePath));
+    final srcAttrs = await sftp.stat(sourcePath);
+    if (srcAttrs.isDirectory) {
+      await _copyTree(sftp, sourcePath, destPath, overwrite);
+    } else {
+      await _copyFile(sftp, sourcePath, destPath, overwrite);
+    }
+    _emit(WorkspaceChangeKind.created, destPath, parentPath: destinationParent);
+    return destPath;
+  }
+
+  Future<void> _copyFile(
+    SftpClient sftp,
+    String src,
+    String dest,
+    bool overwrite,
+  ) async {
+    final input = await sftp.open(src);
+    Uint8List bytes;
+    try {
+      bytes = await input.readBytes();
+    } finally {
+      await input.close();
+    }
+    final mode = SftpFileOpenMode.write |
+        SftpFileOpenMode.create |
+        (overwrite ? SftpFileOpenMode.truncate : SftpFileOpenMode.exclusive);
+    final output = await sftp.open(dest, mode: mode);
+    try {
+      await output.writeBytes(bytes);
+    } finally {
+      await output.close();
+    }
+  }
+
+  Future<void> _copyTree(
+    SftpClient sftp,
+    String src,
+    String dest,
+    bool overwrite,
+  ) async {
+    try {
+      await sftp.mkdir(dest);
+    } catch (_) {
+      if (!overwrite) rethrow;
+    }
+    for (final n in await sftp.listdir(src)) {
+      if (n.filename == '.' || n.filename == '..') continue;
+      final childSrc = _join(src, n.filename);
+      final childDest = _join(dest, n.filename);
+      if (n.attr.isDirectory) {
+        await _copyTree(sftp, childSrc, childDest, overwrite);
+      } else {
+        await _copyFile(sftp, childSrc, childDest, overwrite);
+      }
+    }
+  }
+
+  // ===== text edits (read-modify-write via the shared text ops) =====
+
+  @override
+  Future<void> insertContent(String path, int line, String content) async {
+    final sftp = await _sftpClient();
+    final updated = text_ops.insertContent(
+      await _readWhole(sftp, path),
+      line,
+      content,
+    );
+    await _overwrite(sftp, path, updated);
+    _emit(WorkspaceChangeKind.modified, path);
+  }
+
+  @override
+  Future<int> replaceInFile(
+    String path,
+    String search,
+    String replace, {
+    bool isRegex = false,
+    bool replaceAll = true,
+    bool caseSensitive = true,
+  }) async {
+    final sftp = await _sftpClient();
+    final result = text_ops.replaceInFile(
+      await _readWhole(sftp, path),
+      search,
+      replace,
+      isRegex: isRegex,
+      replaceAll: replaceAll,
+      caseSensitive: caseSensitive,
+    );
+    if (result.replacements > 0) {
+      await _overwrite(sftp, path, result.newContent);
+      _emit(WorkspaceChangeKind.modified, path);
+    }
+    return result.replacements;
+  }
+
+  @override
+  Future<WorkspaceDiffResult> applyDiff(
+    String path,
+    String diff, {
+    WorkspaceDiffFormat format = WorkspaceDiffFormat.searchReplace,
+    bool createBackup = false,
+    String? expectedRangeHash,
+    int? rangeStartLine,
+    int? rangeEndLine,
+  }) async {
+    final sftp = await _sftpClient();
+    final original = await _readWhole(sftp, path);
+    final outcome = text_ops.applyDiff(
+      original,
+      diff,
+      format: format,
+      expectedRangeHash: expectedRangeHash,
+      rangeStartLine: rangeStartLine,
+      rangeEndLine: rangeEndLine,
+    );
+    if (!outcome.success || outcome.newContent == null) {
+      return const WorkspaceDiffResult(
+        success: false,
+        linesChanged: 0,
+        linesAdded: 0,
+        linesDeleted: 0,
+      );
+    }
+    String? backupPath;
+    if (createBackup) {
+      backupPath = '$path.bak';
+      await _overwrite(sftp, backupPath, original);
+    }
+    await _overwrite(sftp, path, outcome.newContent!);
+    _emit(WorkspaceChangeKind.modified, path);
+    return WorkspaceDiffResult(
+      success: true,
+      linesChanged: outcome.linesChanged,
+      linesAdded: outcome.linesAdded,
+      linesDeleted: outcome.linesDeleted,
+      backupPath: backupPath,
+    );
+  }
+
+  Future<void> _overwrite(SftpClient sftp, String path, String content) async {
+    final file = await sftp.open(
+      path,
+      mode: SftpFileOpenMode.write |
+          SftpFileOpenMode.create |
+          SftpFileOpenMode.truncate,
+    );
+    try {
+      await file.writeBytes(Uint8List.fromList(utf8.encode(content)));
+    } finally {
+      await file.close();
+    }
+  }
+
+  // ===== search (client-side SFTP traversal; exec-backed grep lands in SSH-3) =====
+
+  @override
+  Future<List<WorkspaceEntry>> searchFiles(
+    String directory,
+    String query, {
+    WorkspaceSearchType searchType = WorkspaceSearchType.name,
+    List<String> fileTypes = const [],
+    int maxResults = 200,
+    bool recursive = true,
+    bool useRegex = false,
+  }) async {
+    final sftp = await _sftpClient();
+    final results = <WorkspaceEntry>[];
+    final nameMatcher = useRegex
+        ? RegExp(query, caseSensitive: false)
+        : RegExp(RegExp.escape(query), caseSensitive: false);
+    bool nameHit(String name) => useRegex || query.isEmpty
+        ? nameMatcher.hasMatch(name)
+        : name.toLowerCase().contains(query.toLowerCase());
+
+    Future<void> walk(String dir) async {
+      if (results.length >= maxResults) return;
+      List<SftpName> entries;
+      try {
+        entries = await sftp.listdir(dir);
+      } catch (_) {
+        return; // unreadable dir — skip
+      }
+      for (final n in entries) {
+        if (results.length >= maxResults) return;
+        if (n.filename == '.' || n.filename == '..') continue;
+        final path = _join(dir, n.filename);
+        final isDir = n.attr.isDirectory;
+        // [fileTypes] (extension filter) only constrains files, never dirs (we
+        // still recurse into them).
+        final typeOk = fileTypes.isEmpty ||
+            isDir ||
+            fileTypes.any(
+              (t) => n.filename.toLowerCase().endsWith(t.toLowerCase()),
+            );
+
+        var matched = false;
+        if (searchType == WorkspaceSearchType.name ||
+            searchType == WorkspaceSearchType.both) {
+          matched = typeOk && nameHit(n.filename);
+        }
+        if (!matched &&
+            !isDir &&
+            typeOk &&
+            (searchType == WorkspaceSearchType.content ||
+                searchType == WorkspaceSearchType.both)) {
+          matched = await _contentMatch(sftp, path, nameMatcher);
+        }
+        if (matched) results.add(_toEntry(path, n.filename, n.attr));
+        if (isDir && recursive) await walk(path);
+      }
+    }
+
+    await walk(directory);
+    return results;
+  }
+
+  Future<bool> _contentMatch(
+    SftpClient sftp,
+    String path,
+    RegExp matcher,
+  ) async {
+    try {
+      final attrs = await sftp.stat(path);
+      if ((attrs.size ?? 0) > kSshReadFileMaxBytes) return false;
+      final content = await _readWhole(sftp, path);
+      return matcher.hasMatch(content);
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Tears down the transport and the change bus (provider teardown). Safe to

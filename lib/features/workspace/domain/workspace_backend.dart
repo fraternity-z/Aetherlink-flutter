@@ -18,10 +18,18 @@ class WorkspaceCapabilities {
     required this.canExec,
     required this.canWatch,
     required this.isRemote,
+    this.canWrite = true,
   });
 
   /// Whether the backend can run shell commands (Termux / SSH yes, SAF no).
   final bool canExec;
+
+  /// Whether the backend supports the write / edit family (writeFile, create,
+  /// delete, rename, move, copy, insertContent, replaceInFile, applyDiff). Real
+  /// backends (SAF / SSH) are writable; read-only ones (the mock) set this
+  /// false. UI gates the editor's save affordance and the file-tree's file-ops
+  /// menu on it instead of probing the concrete backend type.
+  final bool canWrite;
 
   /// Whether the backend can stream file-change events through
   /// [WorkspaceBackend.watch]. SAF has no inotify equivalent, so it can't see

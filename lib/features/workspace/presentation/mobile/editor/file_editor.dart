@@ -15,7 +15,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:aetherlink_flutter/features/workspace/application/workspace_view_providers.dart';
-import 'package:aetherlink_flutter/features/workspace/data/local_saf_backend.dart';
 import 'package:aetherlink_flutter/features/workspace/domain/workspace_backend.dart';
 import 'package:aetherlink_flutter/features/workspace/presentation/mobile/editor/editor_body.dart';
 import 'package:aetherlink_flutter/features/workspace/presentation/mobile/editor/editor_limits.dart';
@@ -68,7 +67,8 @@ class _FileEditorState extends ConsumerState<FileEditor> {
   // Editing is only ever offered for small text files on a writable backend.
   bool get _writable =>
       _openKind == FileOpenKind.editable &&
-      ref.read(workspacePreviewBackendProvider) is LocalSafBackend;
+      (ref.read(workspacePreviewBackendProvider)?.capabilities.canWrite ??
+          false);
   // Binary / too-large files render a placeholder instead of the editor, so the
   // find bar, status bar and edit affordances are all suppressed.
   bool get _hasTextBody =>
@@ -263,7 +263,7 @@ class _FileEditorState extends ConsumerState<FileEditor> {
 
   Future<bool> _save() async {
     final backend = ref.read(workspacePreviewBackendProvider);
-    if (backend is! LocalSafBackend) return false;
+    if (backend == null || !backend.capabilities.canWrite) return false;
     setState(() => _saving = true);
     try {
       await backend.writeFile(widget.entry.path, _controller.text);

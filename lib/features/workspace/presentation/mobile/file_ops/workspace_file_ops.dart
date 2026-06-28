@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
-import 'package:aetherlink_flutter/features/workspace/data/local_saf_backend.dart';
 import 'package:aetherlink_flutter/features/workspace/domain/workspace_backend.dart';
 
 import 'directory_picker_sheet.dart';
@@ -40,7 +39,7 @@ class WorkspaceFileOps {
   /// top-level entry whose parent is the root).
   final String? Function(String childPath) parentOf;
 
-  bool get _writable => backend is LocalSafBackend;
+  bool get _writable => backend.capabilities.canWrite;
 
   void _snack(String message) {
     if (!context.mounted) return;

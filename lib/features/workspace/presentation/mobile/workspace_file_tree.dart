@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:aetherlink_flutter/features/workspace/application/workspace_view_providers.dart';
-import 'package:aetherlink_flutter/features/workspace/data/local_saf_backend.dart';
 import 'package:aetherlink_flutter/features/workspace/domain/workspace.dart';
 import 'package:aetherlink_flutter/features/workspace/domain/workspace_backend.dart';
 import 'package:aetherlink_flutter/features/workspace/presentation/mobile/file_ops/open_workspace_sheet.dart';
@@ -397,7 +396,9 @@ class _WorkspaceFileTreeState extends ConsumerState<WorkspaceFileTree>
     final rootLoading = root != null && _loading.contains(root) && rows.isEmpty;
 
     final backend = _backend;
-    final ops = (root != null && backend is LocalSafBackend)
+    final ops = (root != null &&
+            backend != null &&
+            backend.capabilities.canWrite)
         ? WorkspaceFileOps(
             context: context,
             backend: backend,

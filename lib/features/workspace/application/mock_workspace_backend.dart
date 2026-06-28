@@ -14,6 +14,7 @@ class MockWorkspaceBackend extends WorkspaceBackend {
         canExec: false,
         canWatch: false,
         isRemote: false,
+        canWrite: false,
       );
 
   @override
