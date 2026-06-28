@@ -158,14 +158,14 @@ class _AgentPromptsSettingsPageState extends State<AgentPromptsSettingsPage>
                     children: [
                       _searchCard(theme),
                       if (query.isNotEmpty) ...[
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 8),
                         if (results.isNotEmpty)
                           _searchResultsCard(theme, results)
                         else
                           _noResultsCard(theme),
                       ] else
                         for (final category in _categories) ...[
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 8),
                           _categoryCard(theme, category),
                         ],
                     ],
@@ -179,61 +179,38 @@ class _AgentPromptsSettingsPageState extends State<AgentPromptsSettingsPage>
     );
   }
 
+  /// A slim standalone search box (the original verbose 搜索提示词 card header /
+  /// subtitle was dropped to compact the 提示词库 tab).
   Widget _searchCard(ThemeData theme) {
-    return _OutlinedCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _CardHeader(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '搜索提示词',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: theme.colorScheme.onSurface,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '在丰富的提示词库中快速找到您需要的模板',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontSize: 13,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
+    return TextField(
+      controller: _searchController,
+      onChanged: (value) => setState(() => _query = value),
+      style: theme.textTheme.bodyMedium?.copyWith(fontSize: 14),
+      decoration: InputDecoration(
+        isDense: true,
+        filled: true,
+        fillColor: theme.colorScheme.surface,
+        hintText: '搜索提示词...',
+        hintStyle: theme.textTheme.bodyMedium?.copyWith(
+          fontSize: 14,
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+        prefixIcon: const Icon(LucideIcons.search, size: 18),
+        contentPadding: const EdgeInsets.symmetric(vertical: 10),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: theme.dividerColor),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: theme.dividerColor),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(
+            color: theme.colorScheme.primary.withValues(alpha: 0.5),
           ),
-          Divider(height: 1, color: theme.dividerColor),
-          Padding(
-            padding: const EdgeInsets.all(14),
-            child: TextField(
-              controller: _searchController,
-              onChanged: (value) => setState(() => _query = value),
-              style: theme.textTheme.bodyMedium?.copyWith(fontSize: 14),
-              decoration: InputDecoration(
-                isDense: true,
-                hintText: '输入关键词搜索提示词...',
-                hintStyle: theme.textTheme.bodyMedium?.copyWith(
-                  fontSize: 14,
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-                prefixIcon: const Icon(LucideIcons.search, size: 20),
-                contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: BorderSide(color: theme.dividerColor),
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -243,36 +220,23 @@ class _AgentPromptsSettingsPageState extends State<AgentPromptsSettingsPage>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _CardHeader(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '搜索结果 (${results.length})',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: theme.colorScheme.onSurface,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '找到 ${results.length} 个匹配的提示词',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontSize: 13,
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+            child: Text(
+              '搜索结果 · ${results.length}',
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ),
-          Divider(height: 1, color: theme.dividerColor),
           Padding(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
             child: Column(
               children: [
                 for (var i = 0; i < results.length; i++) ...[
-                  if (i > 0) const SizedBox(height: 8),
+                  if (i > 0) const SizedBox(height: 6),
                   _promptCard(theme, results[i]),
                 ],
               ],
@@ -308,14 +272,14 @@ class _AgentPromptsSettingsPageState extends State<AgentPromptsSettingsPage>
           InkWell(
             onTap: () => _toggleCategory(category.id),
             child: Padding(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               child: Row(
                 children: [
                   Expanded(
                     child: Text(
                       '${category.emoji} ${category.name}',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontSize: 16,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontSize: 14.5,
                         fontWeight: FontWeight.w600,
                         color: theme.colorScheme.onSurface,
                       ),
@@ -323,18 +287,18 @@ class _AgentPromptsSettingsPageState extends State<AgentPromptsSettingsPage>
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    '${category.prompts.length} 个提示词',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontSize: 13,
+                    '${category.prompts.length}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontSize: 12,
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 4),
                   Icon(
                     isExpanded
                         ? LucideIcons.chevronUp
                         : LucideIcons.chevronDown,
-                    size: 20,
+                    size: 18,
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ],
@@ -344,20 +308,12 @@ class _AgentPromptsSettingsPageState extends State<AgentPromptsSettingsPage>
           if (isExpanded) ...[
             Divider(height: 1, color: theme.dividerColor),
             Padding(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    category.description,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontSize: 13,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
                   for (var i = 0; i < category.prompts.length; i++) ...[
-                    if (i > 0) const SizedBox(height: 8),
+                    if (i > 0) const SizedBox(height: 6),
                     _promptCard(theme, category.prompts[i]),
                   ],
                 ],
@@ -378,7 +334,7 @@ class _AgentPromptsSettingsPageState extends State<AgentPromptsSettingsPage>
         border: Border.all(color: theme.dividerColor),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -387,7 +343,7 @@ class _AgentPromptsSettingsPageState extends State<AgentPromptsSettingsPage>
               children: [
                 Expanded(
                   child: Padding(
-                    padding: const EdgeInsets.only(top: 4),
+                    padding: const EdgeInsets.only(top: 3),
                     child: Text(
                       '${prompt.emoji} ${prompt.name}',
                       style: theme.textTheme.titleSmall?.copyWith(
@@ -407,9 +363,11 @@ class _AgentPromptsSettingsPageState extends State<AgentPromptsSettingsPage>
                 ),
               ],
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Text(
               prompt.description,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodyMedium?.copyWith(
                 fontSize: 12.5,
                 height: 1.3,
@@ -417,7 +375,7 @@ class _AgentPromptsSettingsPageState extends State<AgentPromptsSettingsPage>
               ),
             ),
             if (prompt.tags.isNotEmpty) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               Wrap(
                 spacing: 4,
                 runSpacing: 4,
