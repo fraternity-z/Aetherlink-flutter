@@ -114,15 +114,19 @@ class _WorkspaceManagementPageState
         .saveSetting(kWorkspaceAutoRestoreKey, value ? 'true' : 'false');
   }
 
-  // + 按钮:打开本地文件夹,成功后跳进 /workspace。openLocalFolder 会记录并设为当前,
-  // 用 currentWorkspace 是否变化来判断用户是否真的选了(而非取消)。
-  Future<void> _openFolder() async {
+  // + 按钮 / 空状态:打开统一的「打开文件夹」面板(本地 / SSH / Termux),与工作区内
+  // 的快速切换面板(open_workspace_sheet)共用同一套入口,新增后端自动同步。新工作区
+  // 被设为当前后跳进 /workspace —— 用一次性 listener 捕获切换,兼容本地/SSH/Termux
+  // 各自的异步流程(选择类型时外层面板已先 pop,无法在 await 之后同步判断)。
+  Future<void> _addWorkspace() async {
     final before = ref.read(currentWorkspaceProvider)?.id;
-    await openLocalFolder(context, ref);
-    final after = ref.read(currentWorkspaceProvider);
-    if (mounted && after != null && after.id != before) {
+    var navigated = false;
+    ref.listenManual<Workspace?>(currentWorkspaceProvider, (prev, next) {
+      if (navigated || !mounted || next == null || next.id == before) return;
+      navigated = true;
       context.go(AppRouter.workspacePath);
-    }
+    });
+    await showOpenWorkspaceSheet(context, ref);
   }
 
   Future<void> _open(Workspace w) async {
@@ -323,8 +327,8 @@ class _WorkspaceManagementPageState
           IconButton(
             icon: const Icon(LucideIcons.folderPlus, size: 22),
             color: theme.colorScheme.primary,
-            tooltip: '打开文件夹',
-            onPressed: _openFolder,
+            tooltip: '新建工作区',
+            onPressed: _addWorkspace,
           ),
           const SizedBox(width: 4),
         ],
@@ -334,7 +338,7 @@ class _WorkspaceManagementPageState
         children: [
           _SectionHeader(title: '工作区 (${workspaces.length})'),
           if (workspaces.isEmpty)
-            _EmptyHint(theme: theme, onOpen: _openFolder)
+            _EmptyHint(theme: theme, onOpen: _addWorkspace)
           else
             _OutlinedCard(
               child: Column(
@@ -601,7 +605,7 @@ class _EmptyHint extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              '打开一个手机本地目录开始使用',
+              '打开本地目录,或连接 SSH / Termux 开始使用',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -610,7 +614,7 @@ class _EmptyHint extends StatelessWidget {
             FilledButton.icon(
               onPressed: onOpen,
               icon: const Icon(LucideIcons.folderPlus, size: 18),
-              label: const Text('打开文件夹'),
+              label: const Text('新建工作区'),
             ),
           ],
         ),
