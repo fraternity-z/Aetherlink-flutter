@@ -47,6 +47,7 @@ import 'package:aetherlink_flutter/features/settings/presentation/mobile/web_sea
 import 'package:aetherlink_flutter/features/theming/presentation/mobile/theme_style_settings_page.dart';
 import 'package:aetherlink_flutter/features/voice/presentation/mobile/voice_settings_page.dart';
 import 'package:aetherlink_flutter/features/welcome/presentation/mobile/welcome_page.dart';
+import 'package:aetherlink_flutter/features/workspace/presentation/mobile/workspace_management_page.dart';
 import 'package:aetherlink_flutter/features/workspace/presentation/mobile/workspace_page.dart';
 
 /// Declarative application route table (go_router).
@@ -99,6 +100,7 @@ abstract final class AppRouter {
   static const String globalMemoryPath = '/settings/memory/global';
   static const String assistantMemoryIndexPath = '/settings/memory/assistants';
   static const String searchMemoryPath = '/settings/memory/search';
+  static const String workspaceManagementPath = '/settings/workspace';
   static const String notesPath = '/settings/notes';
   static const String notesSettingsPath = '/settings/notes/settings';
   static String noteEditorPath(String relativePath, String name) =>
@@ -336,6 +338,12 @@ abstract final class AppRouter {
         path: notesPath,
         name: 'notes',
         pageBuilder: (context, state) => _instant(state, const NotesPage()),
+      ),
+      GoRoute(
+        path: workspaceManagementPath,
+        name: 'workspace-management',
+        pageBuilder: (context, state) =>
+            _instant(state, const WorkspaceManagementPage()),
       ),
       GoRoute(
         path: notesSettingsPath,
