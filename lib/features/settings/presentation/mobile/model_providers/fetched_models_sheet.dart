@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:aetherlink_flutter/features/chat/domain/gateways/llm_model_catalog.dart';
 import 'package:aetherlink_flutter/features/settings/presentation/mobile/model_providers/provider_config_utils.dart';
+import 'package:aetherlink_flutter/shared/domain/model_capabilities.dart';
+import 'package:aetherlink_flutter/shared/domain/model_detection/model_enricher.dart';
+import 'package:aetherlink_flutter/shared/domain/model_detection/model_registry.dart';
 
 /// Result of the [FetchedModelsSheet] — carries both the models to add and
-/// the IDs to remove, supporting the full Web-version toggle behaviour.
+/// the IDs to remove.
 class FetchedModelsResult {
   const FetchedModelsResult({required this.toAdd, required this.toRemove});
 
@@ -15,14 +19,18 @@ class FetchedModelsResult {
   final List<String> toRemove;
 }
 
-/// Full-featured bottom sheet for selecting fetched models from the API.
+/// Bottom sheet for picking which fetched models to add (and which existing
+/// ones to drop).
 ///
-/// Mirrors the Web version's `ModelManagementDrawer.solid.tsx`:
-/// - Search/filter bar
-/// - Grouped by model name prefix (collapsible)
-/// - Per-group batch add/remove
-/// - Per-model toggle (already-added can be toggled off for removal)
-/// - Count badge in header
+/// Design goals (more humane than "pre-check everything"):
+///  * **Nothing is pre-selected** — fetching a provider with hundreds of models
+///    no longer arms a bulk add; the user opts in per model / per group / via
+///    「全选」.
+///  * Already-added models are clearly tagged 「已添加」 and shown as kept; tapping
+///    one marks it for removal.
+///  * Each row shows the model's capability icons (vision / reasoning / tools /
+///    web-search / embedding / rerank) so you know what you're adding.
+///  * Grouped by series (collapsible), with per-group add/remove and search.
 class FetchedModelsSheet extends StatefulWidget {
   const FetchedModelsSheet({
     super.key,
@@ -44,9 +52,15 @@ class FetchedModelsSheet extends StatefulWidget {
 class _FetchedModelsSheetState extends State<FetchedModelsSheet> {
   final TextEditingController _searchController = TextEditingController();
   String _searchTerm = '';
-  Set<String> _selected = {};
+
+  /// New (not-yet-added) model ids the user picked for addition.
+  final Set<String> _selected = {};
+
+  /// Already-added model ids the user toggled off for removal.
   final Set<String> _removed = {};
+
   final Set<String> _expandedGroups = {};
+  final Map<String, ModelCapabilities?> _capsCache = {};
 
   List<LlmModelInfo> _models = const [];
   bool _loading = true;
@@ -61,14 +75,15 @@ class _FetchedModelsSheetState extends State<FetchedModelsSheet> {
   Future<void> _load() async {
     try {
       final models = await widget.modelsFuture;
+      // Preset registry powers accurate capability icons; inference still works
+      // without it, so don't fail the sheet if this throws.
+      try {
+        await ModelRegistry.instance.ensureLoaded();
+      } catch (_) {}
       if (!mounted) return;
+      // Intentionally NO default selection — the user opts in.
       setState(() {
         _models = models;
-        // Default: select all models that are NOT already added.
-        _selected = {
-          for (final m in models)
-            if (!widget.existingIds.contains(m.id)) m.id,
-        };
         _loading = false;
       });
     } catch (e) {
@@ -86,6 +101,11 @@ class _FetchedModelsSheetState extends State<FetchedModelsSheet> {
     super.dispose();
   }
 
+  bool _isExisting(String id) => widget.existingIds.contains(id);
+
+  ModelCapabilities? _capsFor(String id) =>
+      _capsCache.putIfAbsent(id, () => detectCapabilities(id));
+
   /// Group models by their derived group name, filtered by search term.
   List<(String, List<LlmModelInfo>)> get _groupedModels {
     final searchLower = _searchTerm.toLowerCase();
@@ -102,42 +122,34 @@ class _FetchedModelsSheetState extends State<FetchedModelsSheet> {
       groups.putIfAbsent(group, () => []).add(model);
     }
 
-    final names = groups.keys.toList()
-      ..sort((a, b) => a.compareTo(b));
+    final names = groups.keys.toList()..sort((a, b) => a.compareTo(b));
     return [for (final name in names) (name, groups[name]!)];
   }
 
+  /// Whether [id] will be present after applying the current selection: a kept
+  /// existing model, or a newly-picked one.
   bool _isModelSelected(String id) {
     if (_removed.contains(id)) return false;
-    return widget.existingIds.contains(id) || _selected.contains(id);
+    return _isExisting(id) || _selected.contains(id);
   }
 
   bool _isGroupFullySelected(List<LlmModelInfo> models) =>
       models.every((m) => _isModelSelected(m.id));
 
-  int get _newSelectionCount =>
-      _selected.where((id) => !widget.existingIds.contains(id)).length;
-
+  int get _newSelectionCount => _selected.length;
   int get _removeCount => _removed.length;
-
   bool get _hasChanges => _newSelectionCount > 0 || _removeCount > 0;
+
+  int get _existingCount =>
+      _models.where((m) => _isExisting(m.id)).length;
+  int get _newAvailableCount => _models.length - _existingCount;
 
   void _toggleModel(String id) {
     setState(() {
-      if (widget.existingIds.contains(id)) {
-        // Toggle removal of an existing model
-        if (_removed.contains(id)) {
-          _removed.remove(id);
-        } else {
-          _removed.add(id);
-        }
+      if (_isExisting(id)) {
+        if (!_removed.remove(id)) _removed.add(id);
       } else {
-        // Toggle selection of a new model
-        if (_selected.contains(id)) {
-          _selected.remove(id);
-        } else {
-          _selected.add(id);
-        }
+        if (!_selected.remove(id)) _selected.add(id);
       }
     });
   }
@@ -146,7 +158,7 @@ class _FetchedModelsSheetState extends State<FetchedModelsSheet> {
     final allSelected = _isGroupFullySelected(models);
     setState(() {
       for (final m in models) {
-        if (widget.existingIds.contains(m.id)) {
+        if (_isExisting(m.id)) {
           if (allSelected) {
             _removed.add(m.id);
           } else {
@@ -165,28 +177,22 @@ class _FetchedModelsSheetState extends State<FetchedModelsSheet> {
 
   void _toggleExpand(String groupName) {
     setState(() {
-      if (_expandedGroups.contains(groupName)) {
-        _expandedGroups.remove(groupName);
-      } else {
-        _expandedGroups.add(groupName);
-      }
+      if (!_expandedGroups.remove(groupName)) _expandedGroups.add(groupName);
     });
   }
 
-  void _selectAll() {
+  void _selectAllNew() {
     setState(() {
       for (final m in _models) {
-        if (!widget.existingIds.contains(m.id)) {
-          _selected.add(m.id);
-        }
+        if (!_isExisting(m.id)) _selected.add(m.id);
       }
-      _removed.clear();
     });
   }
 
-  void _deselectAll() {
+  void _clearSelection() {
     setState(() {
-      _selected.removeWhere((id) => !widget.existingIds.contains(id));
+      _selected.clear();
+      _removed.clear();
     });
   }
 
@@ -195,7 +201,9 @@ class _FetchedModelsSheetState extends State<FetchedModelsSheet> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final grouped = _groupedModels;
-    final totalCount = _models.length;
+    // Auto-expand while searching or when there's a single group, so results
+    // aren't hidden behind collapsed headers.
+    final autoExpand = _searchTerm.isNotEmpty || grouped.length == 1;
 
     return DraggableScrollableSheet(
       initialChildSize: 0.85,
@@ -217,7 +225,7 @@ class _FetchedModelsSheetState extends State<FetchedModelsSheet> {
                   width: 36,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: colorScheme.onSurfaceVariant.withOpacity(0.3),
+                    color: colorScheme.onSurfaceVariant.withValues(alpha: 0.3),
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -230,159 +238,199 @@ class _FetchedModelsSheetState extends State<FetchedModelsSheet> {
               else if (_error != null)
                 Expanded(child: _buildErrorState(theme, colorScheme))
               else ...[
-              // ─── Header ───────────────────────────────────────
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '获取到 $totalCount 个模型',
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    // Select all / Deselect all
-                    TextButton(
-                      onPressed: _newSelectionCount ==
-                              (totalCount - widget.existingIds.length)
-                          ? _deselectAll
-                          : _selectAll,
-                      child: Text(
-                        _newSelectionCount ==
-                                (totalCount - widget.existingIds.length)
-                            ? '取消全选'
-                            : '全选',
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('取消'),
-                    ),
-                  ],
-                ),
-              ),
-
-              // ─── Search bar ───────────────────────────────────
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                child: TextField(
-                  controller: _searchController,
-                  onChanged: (v) => setState(() => _searchTerm = v),
-                  decoration: InputDecoration(
-                    hintText: '搜索模型...',
-                    prefixIcon: const Icon(Icons.search, size: 20),
-                    suffixIcon: _searchTerm.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.close, size: 18),
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() => _searchTerm = '');
-                            },
-                          )
-                        : null,
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                        color: colorScheme.outline.withOpacity(0.3),
-                      ),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                        color: colorScheme.outline.withOpacity(0.3),
-                      ),
-                    ),
-                    filled: true,
-                    fillColor: colorScheme.surfaceContainerHighest.withOpacity(0.3),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 4),
-
-              // ─── Model groups list ────────────────────────────
-              Expanded(
-                child: grouped.isEmpty
-                    ? Center(
-                        child: Text(
-                          _searchTerm.isNotEmpty ? '未找到匹配的模型' : '暂无可用模型',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
+                _buildHeader(theme, colorScheme),
+                _buildSearchBar(colorScheme),
+                const SizedBox(height: 4),
+                Expanded(
+                  child: grouped.isEmpty
+                      ? Center(
+                          child: Text(
+                            _searchTerm.isNotEmpty ? '未找到匹配的模型' : '暂无可用模型',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
                           ),
+                        )
+                      : ListView.builder(
+                          controller: scrollController,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          itemCount: grouped.length,
+                          itemBuilder: (context, index) {
+                            final (groupName, models) = grouped[index];
+                            return _GroupSection(
+                              groupName: groupName,
+                              models: models,
+                              isExpanded:
+                                  autoExpand ||
+                                  _expandedGroups.contains(groupName),
+                              isFullySelected: _isGroupFullySelected(models),
+                              isModelSelected: _isModelSelected,
+                              isExisting: _isExisting,
+                              capsFor: _capsFor,
+                              onToggleExpand: () => _toggleExpand(groupName),
+                              onToggleGroup: () => _toggleGroup(models),
+                              onToggleModel: _toggleModel,
+                            );
+                          },
                         ),
-                      )
-                    : ListView.builder(
-                        controller: scrollController,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        itemCount: grouped.length,
-                        itemBuilder: (context, index) {
-                          final (groupName, models) = grouped[index];
-                          return _GroupSection(
-                            groupName: groupName,
-                            models: models,
-                            isExpanded: _expandedGroups.contains(groupName),
-                            isFullySelected: _isGroupFullySelected(models),
-                            isModelSelected: _isModelSelected,
-                            onToggleExpand: () => _toggleExpand(groupName),
-                            onToggleGroup: () => _toggleGroup(models),
-                            onToggleModel: _toggleModel,
-                          );
-                        },
-                      ),
-              ),
-
-              // ─── Bottom action button ─────────────────────────
-              SafeArea(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                  child: SizedBox(
-                    width: double.infinity,
-                    height: 48,
-                    child: FilledButton(
-                      onPressed: !_hasChanges
-                          ? null
-                          : () {
-                              final toAdd = [
-                                for (final m in _models)
-                                  if (_selected.contains(m.id) &&
-                                      !widget.existingIds.contains(m.id))
-                                    m,
-                              ];
-                              final toRemove = _removed.toList();
-                              Navigator.of(context).pop(
-                                FetchedModelsResult(
-                                  toAdd: toAdd,
-                                  toRemove: toRemove,
-                                ),
-                              );
-                            },
-                      style: FilledButton.styleFrom(
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: Text(
-                        _buildButtonLabel(),
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
                 ),
-              ),
+                _buildFooter(colorScheme),
               ],
             ],
           ),
         );
       },
+    );
+  }
+
+  Widget _buildHeader(ThemeData theme, ColorScheme colorScheme) {
+    final allNewSelected =
+        _newAvailableCount > 0 && _newSelectionCount >= _newAvailableCount;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 8, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '获取到 ${_models.length} 个模型',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '已添加 $_existingCount · 可新增 $_newAvailableCount',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_newAvailableCount > 0)
+            TextButton(
+              onPressed: allNewSelected ? null : _selectAllNew,
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+              ),
+              child: const Text('全选'),
+            ),
+          if (_hasChanges)
+            TextButton(
+              onPressed: _clearSelection,
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                foregroundColor: colorScheme.onSurfaceVariant,
+              ),
+              child: const Text('清空'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSearchBar(ColorScheme colorScheme) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: TextField(
+        controller: _searchController,
+        onChanged: (v) => setState(() => _searchTerm = v),
+        decoration: InputDecoration(
+          hintText: '搜索模型...',
+          prefixIcon: const Icon(Icons.search, size: 20),
+          suffixIcon: _searchTerm.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.close, size: 18),
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() => _searchTerm = '');
+                  },
+                )
+              : null,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 10,
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(
+              color: colorScheme.outline.withValues(alpha: 0.3),
+            ),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(
+              color: colorScheme.outline.withValues(alpha: 0.3),
+            ),
+          ),
+          filled: true,
+          fillColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFooter(ColorScheme colorScheme) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        child: Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: const Text('取消'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 2,
+              child: FilledButton(
+                onPressed: !_hasChanges
+                    ? null
+                    : () {
+                        final toAdd = [
+                          for (final m in _models)
+                            if (_selected.contains(m.id) && !_isExisting(m.id))
+                              m,
+                        ];
+                        Navigator.of(context).pop(
+                          FetchedModelsResult(
+                            toAdd: toAdd,
+                            toRemove: _removed.toList(),
+                          ),
+                        );
+                      },
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: Text(
+                  _buildButtonLabel(),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -415,7 +463,7 @@ class _FetchedModelsSheetState extends State<FetchedModelsSheet> {
     final parts = <String>[];
     if (_newSelectionCount > 0) parts.add('添加 $_newSelectionCount');
     if (_removeCount > 0) parts.add('移除 $_removeCount');
-    return parts.isEmpty ? '确认' : parts.join(' · ');
+    return parts.isEmpty ? '未选择' : parts.join(' · ');
   }
 }
 
@@ -428,6 +476,8 @@ class _GroupSection extends StatelessWidget {
     required this.isExpanded,
     required this.isFullySelected,
     required this.isModelSelected,
+    required this.isExisting,
+    required this.capsFor,
     required this.onToggleExpand,
     required this.onToggleGroup,
     required this.onToggleModel,
@@ -438,6 +488,8 @@ class _GroupSection extends StatelessWidget {
   final bool isExpanded;
   final bool isFullySelected;
   final bool Function(String) isModelSelected;
+  final bool Function(String) isExisting;
+  final ModelCapabilities? Function(String) capsFor;
   final VoidCallback onToggleExpand;
   final VoidCallback onToggleGroup;
   final ValueChanged<String> onToggleModel;
@@ -509,6 +561,8 @@ class _GroupSection extends StatelessWidget {
                   _ModelItem(
                     model: model,
                     isSelected: isModelSelected(model.id),
+                    isExisting: isExisting(model.id),
+                    caps: capsFor(model.id),
                     onToggle: () => onToggleModel(model.id),
                   ),
               ],
@@ -522,10 +576,7 @@ class _GroupSection extends StatelessWidget {
 // ─── Group Action Button ───────────────────────────────────────────────────
 
 class _GroupActionButton extends StatelessWidget {
-  const _GroupActionButton({
-    required this.isFullySelected,
-    required this.onTap,
-  });
+  const _GroupActionButton({required this.isFullySelected, required this.onTap});
 
   final bool isFullySelected;
   final VoidCallback onTap;
@@ -533,12 +584,10 @@ class _GroupActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final color = isFullySelected
-        ? colorScheme.error
-        : colorScheme.primary;
+    final color = isFullySelected ? colorScheme.error : colorScheme.primary;
 
     return Material(
-      color: color.withOpacity(0.1),
+      color: color.withValues(alpha: 0.1),
       borderRadius: BorderRadius.circular(8),
       child: InkWell(
         onTap: onTap,
@@ -562,11 +611,15 @@ class _ModelItem extends StatelessWidget {
   const _ModelItem({
     required this.model,
     required this.isSelected,
+    required this.isExisting,
+    required this.caps,
     required this.onToggle,
   });
 
   final LlmModelInfo model;
   final bool isSelected;
+  final bool isExisting;
+  final ModelCapabilities? caps;
   final VoidCallback onToggle;
 
   @override
@@ -575,50 +628,69 @@ class _ModelItem extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final name = model.name ?? model.id;
     final showId = name != model.id;
+    final dim = !isSelected;
 
     return InkWell(
       onTap: onToggle,
       borderRadius: BorderRadius.circular(10),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
         child: Row(
           children: [
-            // Model info
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    name,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w500,
-                      color: isSelected
-                          ? colorScheme.onSurface
-                          : colorScheme.onSurfaceVariant.withOpacity(0.6),
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          name,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w500,
+                            color: dim
+                                ? colorScheme.onSurfaceVariant.withValues(
+                                    alpha: 0.6,
+                                  )
+                                : colorScheme.onSurface,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (isExisting) ...[
+                        const SizedBox(width: 6),
+                        _Pill(
+                          label: '已添加',
+                          color: colorScheme.primary,
+                        ),
+                      ],
+                    ],
                   ),
                   if (showId)
-                    Text(
-                      model.id,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant.withOpacity(0.7),
-                        fontSize: 11,
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        model.id,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant.withValues(
+                            alpha: 0.7,
+                          ),
+                          fontSize: 11,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
+                  if (caps != null) ...[
+                    const SizedBox(height: 4),
+                    _CapabilityStrip(caps: caps!),
+                  ],
                 ],
               ),
             ),
-
             const SizedBox(width: 8),
-
-            // Status indicator — all models use the same selection indicator;
-            // existing models that are still "kept" show as selected (green),
-            // toggled-off existing models show as unselected (empty border).
             _SelectionIndicator(isSelected: isSelected),
           ],
         ),
@@ -655,11 +727,88 @@ class _SelectionIndicator extends StatelessWidget {
       height: 24,
       decoration: BoxDecoration(
         border: Border.all(
-          color: colorScheme.outline.withOpacity(0.5),
+          color: colorScheme.outline.withValues(alpha: 0.5),
           width: 1.5,
         ),
         borderRadius: BorderRadius.circular(6),
       ),
+    );
+  }
+}
+
+// ─── Small pill tag ────────────────────────────────────────────────────────
+
+class _Pill extends StatelessWidget {
+  const _Pill({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Capability icons (Cherry-style) ───────────────────────────────────────
+
+/// A compact, read-only strip of capability icons inferred from a model id.
+/// Icon set / colours match Cherry Studio's per-row capability tags.
+class _CapabilityStrip extends StatelessWidget {
+  const _CapabilityStrip({required this.caps});
+
+  final ModelCapabilities caps;
+
+  @override
+  Widget build(BuildContext context) {
+    final badges = <(IconData, Color, String)>[
+      if (caps.vision == true || caps.multimodal == true)
+        (LucideIcons.eye, const Color(0xFF00B96B), '视觉'),
+      if (caps.webSearch == true)
+        (LucideIcons.globe, const Color(0xFF1677FF), '网络搜索'),
+      if (caps.reasoning == true)
+        (LucideIcons.lightbulb, const Color(0xFF6372BD), '推理'),
+      if (caps.functionCalling == true || caps.toolUse == true)
+        (LucideIcons.wrench, const Color(0xFFF18737), '函数调用'),
+      if (caps.embedding == true)
+        (LucideIcons.code2, const Color(0xFFFFA500), '嵌入'),
+      if (caps.rerank == true)
+        (LucideIcons.rotateCw, const Color(0xFF6495ED), '重排序'),
+    ];
+    if (badges.isEmpty) return const SizedBox.shrink();
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final (icon, color, label) in badges)
+          Padding(
+            padding: const EdgeInsets.only(right: 3),
+            child: Tooltip(
+              message: label,
+              child: Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.125),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, size: 11, color: color),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
