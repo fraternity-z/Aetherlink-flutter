@@ -12,6 +12,7 @@ import 'package:aetherlink_flutter/features/memory/presentation/mobile/assistant
 import 'package:aetherlink_flutter/features/memory/presentation/mobile/assistant_memory_list_page.dart';
 import 'package:aetherlink_flutter/features/memory/presentation/mobile/global_memory_list_page.dart';
 import 'package:aetherlink_flutter/features/memory/presentation/mobile/memory_home_page.dart';
+import 'package:aetherlink_flutter/features/memory/presentation/mobile/memory_settings_page.dart';
 import 'package:aetherlink_flutter/features/memory/presentation/mobile/search_memory_page.dart';
 import 'package:aetherlink_flutter/features/settings/presentation/mobile/about_page.dart';
 import 'package:aetherlink_flutter/features/settings/presentation/mobile/agent_prompts_settings_page.dart';
@@ -99,6 +100,7 @@ abstract final class AppRouter {
   static const String globalMemoryPath = '/settings/memory/global';
   static const String assistantMemoryIndexPath = '/settings/memory/assistants';
   static const String searchMemoryPath = '/settings/memory/search';
+  static const String memorySettingsPath = '/settings/memory/settings';
   static const String notesPath = '/settings/notes';
   static const String notesSettingsPath = '/settings/notes/settings';
   static String noteEditorPath(String relativePath, String name) =>
@@ -308,6 +310,12 @@ abstract final class AppRouter {
         name: 'memorySearch',
         pageBuilder: (context, state) =>
             _instant(state, const SearchMemoryPage()),
+      ),
+      GoRoute(
+        path: memorySettingsPath,
+        name: 'memorySettings',
+        pageBuilder: (context, state) =>
+            _instant(state, const MemorySettingsPage()),
       ),
       GoRoute(
         path: AssistantMemoryRoute.pattern,

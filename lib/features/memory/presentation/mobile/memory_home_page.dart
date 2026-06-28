@@ -87,7 +87,7 @@ class MemoryHomePage extends ConsumerWidget {
             const SizedBox(height: 14),
             const _GroupLabel('配置'),
             const SizedBox(height: 6),
-            _settingsCard(theme),
+            _settingsCard(context),
           ],
         ],
       ),
@@ -229,14 +229,14 @@ class MemoryHomePage extends ConsumerWidget {
     );
   }
 
-  Widget _settingsCard(ThemeData theme) {
-    return const _OutlinedCard(
+  Widget _settingsCard(BuildContext context) {
+    return _OutlinedCard(
       child: _NavRow(
         icon: LucideIcons.settings2,
-        accent: Color(0xFF8B5CF6),
+        accent: const Color(0xFF8B5CF6),
         label: '记忆设置',
         description: '注入方式 · 嵌入模型 · 高级参数',
-        comingSoon: true,
+        onTap: () => context.push(AppRouter.memorySettingsPath),
       ),
     );
   }
@@ -403,15 +403,13 @@ class _PrimaryRow extends StatelessWidget {
 }
 
 /// A navigation row: a tinted glyph, a label and description, and a trailing
-/// chevron — or an 「即将支持」 tag while its target is not built yet (rendered
-/// at half opacity, non-interactive), matching the settings hub's disabled rows.
+/// chevron.
 class _NavRow extends StatelessWidget {
   const _NavRow({
     required this.icon,
     required this.accent,
     required this.label,
     required this.description,
-    this.comingSoon = false,
     this.onTap,
     this.trailingText,
   });
@@ -420,7 +418,6 @@ class _NavRow extends StatelessWidget {
   final Color accent;
   final String label;
   final String description;
-  final bool comingSoon;
   final VoidCallback? onTap;
   final String? trailingText;
 
@@ -457,10 +454,6 @@ class _NavRow extends StatelessWidget {
                         ),
                       ),
                     ),
-                    if (comingSoon) ...[
-                      const SizedBox(width: 6),
-                      const _ComingSoonTag(),
-                    ],
                   ],
                 ),
                 const SizedBox(height: 3),
@@ -496,7 +489,6 @@ class _NavRow extends StatelessWidget {
       ),
     );
 
-    if (comingSoon) return Opacity(opacity: 0.5, child: row);
     if (onTap != null) {
       return Material(
         color: Colors.transparent,
@@ -551,29 +543,5 @@ class _StatDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(width: 1, height: 30, color: theme.dividerColor);
-  }
-}
-
-/// The small outlined 「即将支持」 tag (the 行为 page's tag).
-class _ComingSoonTag extends StatelessWidget {
-  const _ComingSoonTag();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: theme.dividerColor),
-      ),
-      child: Text(
-        '即将支持',
-        style: theme.textTheme.bodySmall?.copyWith(
-          fontSize: 10.5,
-          color: theme.colorScheme.onSurfaceVariant,
-        ),
-      ),
-    );
   }
 }

@@ -45,8 +45,10 @@ enum MemorySource {
 /// near-non-decaying storage strength (0..1); [accessCount] / [lastAccessedAt]
 /// back the activation-based retrieval that will land in a later phase.
 ///
-/// `embedding` is intentionally not modelled yet — this slice ships manual CRUD
-/// and keyword search only; the vector column is added when retrieval lands.
+/// [embedding] caches the content's vector for semantic retrieval; it is
+/// computed lazily on first recall and persisted in the JSON blob (no schema
+/// migration). [embeddingModelId] records which embedding model produced it so
+/// a model change invalidates the cache and triggers a re-embed.
 @freezed
 abstract class MemoryItem with _$MemoryItem {
   const factory MemoryItem({
@@ -68,6 +70,8 @@ abstract class MemoryItem with _$MemoryItem {
     @Default(0) int createdAt,
     @Default(0) int updatedAt,
     int? lastAccessedAt,
+    List<double>? embedding,
+    String? embeddingModelId,
   }) = _MemoryItem;
 
   factory MemoryItem.fromJson(Map<String, dynamic> json) =>

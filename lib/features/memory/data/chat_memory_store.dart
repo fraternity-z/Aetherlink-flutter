@@ -57,6 +57,11 @@ class ChatMemoryStore {
 
   Future<void> delete(String id) => _dao.softDelete(id);
 
+  /// Persists a recomputed [item.embedding] / [item.embeddingModelId] in place
+  /// without touching `updatedAt` (so caching a vector never reorders the
+  /// newest-first lists). Used by semantic retrieval's lazy embedding backfill.
+  Future<void> persistEmbedding(MemoryItem item) => _dao.upsert(item);
+
   Future<MemoryCounts> counts() async {
     final total = await _dao.countByKind(MemoryKind.chat);
     final global = await _dao.count(const MemoryScope.chatGlobal());

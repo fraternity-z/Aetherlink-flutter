@@ -51,6 +51,10 @@ abstract class MemorySettings with _$MemorySettings {
     @Default(1500) int tokenBudget,
     @Default(5) int topK,
     @Default(30) int fullDumpThreshold,
+
+    /// The `providerId:modelId` key of the embedding model used for semantic
+    /// retrieval (null → not configured, semantic/auto fall back to keyword).
+    String? embeddingModelKey,
   }) = _MemorySettings;
 
   factory MemorySettings.fromJson(Map<String, dynamic> json) =>

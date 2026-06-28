@@ -308,6 +308,7 @@ class ChatController extends _$ChatController {
     final memInjection = await collectChatMemoryInjection(
       ref,
       assistantId: _assistantId,
+      query: trimmed,
     );
     final request = LlmChatRequest(
       model: effective,

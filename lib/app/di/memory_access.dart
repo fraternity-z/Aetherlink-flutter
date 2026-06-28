@@ -1,14 +1,23 @@
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
+import 'package:aetherlink_flutter/app/di/model_access.dart';
+import 'package:aetherlink_flutter/app/di/network_proxy_access.dart';
+import 'package:aetherlink_flutter/core/network/dio_client.dart';
 import 'package:aetherlink_flutter/features/chat/application/chat_providers.dart';
 import 'package:aetherlink_flutter/features/memory/application/memory_providers.dart';
 import 'package:aetherlink_flutter/features/memory/application/memory_settings_controller.dart';
 import 'package:aetherlink_flutter/features/memory/data/chat_memory_store.dart';
+import 'package:aetherlink_flutter/features/memory/data/embedding_service.dart';
+import 'package:aetherlink_flutter/features/memory/domain/embedding_model_key.dart';
 import 'package:aetherlink_flutter/features/memory/domain/memory_extraction.dart';
 import 'package:aetherlink_flutter/features/memory/domain/memory_injection.dart';
 import 'package:aetherlink_flutter/features/memory/domain/memory_item.dart';
 import 'package:aetherlink_flutter/features/memory/domain/memory_scope.dart';
 import 'package:aetherlink_flutter/features/memory/domain/memory_settings.dart';
+import 'package:aetherlink_flutter/features/memory/domain/memory_vector.dart';
+import 'package:aetherlink_flutter/features/models/domain/current_model.dart';
+import 'package:aetherlink_flutter/shared/domain/model.dart';
+import 'package:aetherlink_flutter/shared/domain/model_provider.dart';
 
 part 'memory_access.g.dart';
 
@@ -42,19 +51,36 @@ class ChatMemoryInjection {
 }
 
 /// Resolves the memories to inject for the assistant identified by [assistantId]
-/// (null/empty → global only). Returns an empty result when memory is disabled
-/// or the injection mode is [MemoryInjectionMode.off].
+/// (null/empty → global only), retrieving against the current user [query].
+/// Returns an empty result when memory is disabled or the injection mode is
+/// [MemoryInjectionMode.off].
+///
+/// Branches by [MemorySettings.injectionMode]:
+/// - `full` → every in-scope memory (global + assistant), unchanged behaviour.
+/// - `auto` → global always full-dumped; the assistant pool is full-dumped when
+///   the total collection is at/below `fullDumpThreshold`, otherwise narrowed to
+///   the semantic top-k.
+/// - `semantic` → vector top-k across global + assistant via the configured
+///   embedding model (lazily embedding + caching any memory that lacks a current
+///   vector); degrades to `keyword` when no embedding model is configured.
+/// - `keyword` → local substring match against [query], no API call.
+/// - `off` → nothing.
+/// Retrieval modes fall back to a full dump when [query] is empty (e.g. a
+/// regenerate with no fresh user turn) so they never silently inject nothing.
 ///
 /// Lives here (the composition root) because the chat feature must not import
-/// `memory/application` or `memory/data` directly: it reads the master switch +
-/// injection mode ([MemorySettingsController]) and the stored memories
-/// ([ChatMemoryStore]), then formats them with the pure `memory/domain` helper.
+/// `memory/application` or `memory/data` directly: it reads settings
+/// ([MemorySettingsController]), the stored memories ([ChatMemoryStore]) and the
+/// embedding model (the `models` store), then formats them with the pure
+/// `memory/domain` helpers.
 Future<ChatMemoryInjection> collectChatMemoryInjection(
   Ref ref, {
   String? assistantId,
+  String? query,
 }) async {
   final settings = ref.read(memorySettingsControllerProvider);
-  if (!settings.enabled || settings.injectionMode == MemoryInjectionMode.off) {
+  final mode = settings.injectionMode;
+  if (!settings.enabled || mode == MemoryInjectionMode.off) {
     return const ChatMemoryInjection();
   }
   final store = ref.read(chatMemoryStoreProvider);
@@ -62,6 +88,46 @@ Future<ChatMemoryInjection> collectChatMemoryInjection(
   final assistant = (assistantId == null || assistantId.isEmpty)
       ? const <MemoryItem>[]
       : await store.list(MemoryScope.chatAssistant(assistantId));
+
+  final q = query?.trim() ?? '';
+
+  // `full`, or any retrieval mode without a query to retrieve against, injects
+  // the whole in-scope collection.
+  if (mode == MemoryInjectionMode.full || q.isEmpty) {
+    return _dump(global, assistant);
+  }
+
+  switch (mode) {
+    case MemoryInjectionMode.keyword:
+      final selected = _keywordTopK([...global, ...assistant], q, settings.topK);
+      return _dump(_globalOf(selected), _assistantOf(selected));
+    case MemoryInjectionMode.semantic:
+      final selected = await _semanticTopK(
+        ref,
+        [...global, ...assistant],
+        q,
+        settings,
+      );
+      return _dump(_globalOf(selected), _assistantOf(selected));
+    case MemoryInjectionMode.auto:
+      // Global is always full-dumped (small by nature); the assistant pool is
+      // narrowed only once the whole collection outgrows the threshold.
+      if (global.length + assistant.length <= settings.fullDumpThreshold) {
+        return _dump(global, assistant);
+      }
+      final selectedAssistant = await _semanticTopK(ref, assistant, q, settings);
+      return _dump(global, selectedAssistant);
+    case MemoryInjectionMode.full:
+    case MemoryInjectionMode.off:
+    case MemoryInjectionMode.tool:
+      return _dump(global, assistant);
+  }
+}
+
+ChatMemoryInjection _dump(
+  List<MemoryItem> global,
+  List<MemoryItem> assistant,
+) {
   final section = buildMemoryPromptSection(global: global, assistant: assistant);
   final memories = <String>[
     for (final m in global)
@@ -72,10 +138,143 @@ Future<ChatMemoryInjection> collectChatMemoryInjection(
   return ChatMemoryInjection(section: section, memories: memories);
 }
 
+List<MemoryItem> _globalOf(List<MemoryItem> items) =>
+    [for (final m in items) if (m.level == MemoryLevel.global) m];
+
+List<MemoryItem> _assistantOf(List<MemoryItem> items) =>
+    [for (final m in items) if (m.level != MemoryLevel.global) m];
+
+/// Local substring ranking: keeps [candidates] whose content contains any
+/// whitespace-split token of [query] (case-insensitive), ordered by how many
+/// distinct tokens they match, capped at [topK]. Returns an empty list when
+/// nothing matches (no API call, the no-embedding-model fallback).
+List<MemoryItem> _keywordTopK(
+  List<MemoryItem> candidates,
+  String query,
+  int topK,
+) {
+  final tokens = query
+      .toLowerCase()
+      .split(RegExp(r'\s+'))
+      .where((t) => t.isNotEmpty)
+      .toSet();
+  if (tokens.isEmpty) return const <MemoryItem>[];
+  final scored = <(MemoryItem, int)>[];
+  for (final item in candidates) {
+    final content = item.content.toLowerCase();
+    final hits = tokens.where(content.contains).length;
+    if (hits > 0) scored.add((item, hits));
+  }
+  scored.sort((a, b) => b.$2.compareTo(a.$2));
+  final limit = topK < 1 ? 1 : topK;
+  final kept = scored.length > limit ? scored.sublist(0, limit) : scored;
+  return [for (final entry in kept) entry.$1];
+}
+
+/// Vector ranking of [candidates] against [query] using the configured embedding
+/// model. Lazily embeds (and caches) any candidate missing a vector for the
+/// current model, embeds the query, and returns the cosine top-k. Falls back to
+/// [_keywordTopK] when no embedding model is configured or any embedding call
+/// fails.
+Future<List<MemoryItem>> _semanticTopK(
+  Ref ref,
+  List<MemoryItem> candidates,
+  String query,
+  MemorySettings settings,
+) async {
+  if (candidates.isEmpty) return const <MemoryItem>[];
+  final modelKey = settings.embeddingModelKey;
+  final providers = await ref.read(appModelProvidersProvider.future);
+  final model = _resolveEmbeddingModel(providers, modelKey);
+  if (model == null || modelKey == null) {
+    return _keywordTopK(candidates, query, settings.topK);
+  }
+
+  try {
+    final service = EmbeddingService(
+      buildLlmDio(proxy: ref.read(appNetworkProxyConfigProvider)),
+    );
+    final store = ref.read(chatMemoryStoreProvider);
+
+    // Lazily (re)embed any memory whose cached vector is missing or was produced
+    // by a different model, then persist it so later turns reuse the vector.
+    final stale = <MemoryItem>[
+      for (final item in candidates)
+        if (item.embedding == null ||
+            item.embedding!.isEmpty ||
+            item.embeddingModelId != modelKey)
+          item,
+    ];
+    final resolved = <String, MemoryItem>{for (final m in candidates) m.id: m};
+    if (stale.isNotEmpty) {
+      final vectors = await service.embedAll(
+        model,
+        [for (final m in stale) m.content],
+      );
+      for (var i = 0; i < stale.length; i++) {
+        final vector = i < vectors.length ? vectors[i] : const <double>[];
+        if (vector.isEmpty) continue;
+        final updated = stale[i].copyWith(
+          embedding: vector,
+          embeddingModelId: modelKey,
+        );
+        resolved[updated.id] = updated;
+        await store.persistEmbedding(updated);
+      }
+    }
+
+    final queryVector = await service.embed(model, query);
+    if (queryVector.isEmpty) {
+      return _keywordTopK(candidates, query, settings.topK);
+    }
+    final ranked = rankBySimilarity(
+      queryVector,
+      resolved.values.toList(),
+      settings.topK,
+    );
+    if (ranked.isEmpty) {
+      return _keywordTopK(candidates, query, settings.topK);
+    }
+    return [for (final scored in ranked) scored.item];
+  } on Object {
+    // Embedding is best-effort; never break a turn over a retrieval failure.
+    return _keywordTopK(candidates, query, settings.topK);
+  }
+}
+
+/// Resolves the persisted [key] to a send-ready embedding [Model] (provider
+/// endpoint + credentials merged in), or `null` when the key is unset/malformed
+/// or its provider/model no longer exists.
+Model? _resolveEmbeddingModel(List<ModelProvider> providers, String? key) {
+  final pair = decodeEmbeddingModelKey(key);
+  if (pair == null) return null;
+  final (providerId, modelId) = pair;
+  for (final provider in providers) {
+    if (provider.id != providerId) continue;
+    for (final model in provider.models) {
+      if (model.id == modelId) {
+        return effectiveModelFor(
+          CurrentModel(provider: provider, model: model),
+        );
+      }
+    }
+  }
+  return null;
+}
+
 /// Builds just the `<user_memories>` system-prompt block — a thin wrapper over
 /// [collectChatMemoryInjection] for callers that only need the prompt text.
-Future<String?> buildChatMemoryInjection(Ref ref, {String? assistantId}) async =>
-    (await collectChatMemoryInjection(ref, assistantId: assistantId)).section;
+Future<String?> buildChatMemoryInjection(
+  Ref ref, {
+  String? assistantId,
+  String? query,
+}) async =>
+    (await collectChatMemoryInjection(
+      ref,
+      assistantId: assistantId,
+      query: query,
+    ))
+        .section;
 
 /// The 自动写入 gate for autoAnalyze, read from [MemorySettingsController].
 /// Lives here because the chat feature (which drives extraction after a turn)
