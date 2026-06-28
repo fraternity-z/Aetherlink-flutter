@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -274,10 +275,16 @@ class _MarkdownTableState extends State<MarkdownTable> {
 
         // Always horizontally scrollable so long cell content stays on one line
         // (no wrapping/cramming). To avoid blank space on the right when the
-        // table is narrower than the viewport, force it to at least the
-        // viewport width (ConstrainedBox.minWidth) and size it to its natural
-        // single-line content width via IntrinsicWidth — the flex columns then
-        // stretch to fill any leftover space.
+        // table is narrower than the viewport, the table is sized to the larger
+        // of its natural content width and the viewport width, then its flex
+        // columns stretch to fill any leftover space.
+        //
+        // We deliberately do NOT use [IntrinsicWidth] here: cells render
+        // [GptMarkdown], which wraps its content in a [LayoutBuilder], and
+        // [LayoutBuilder] doesn't support the intrinsic-sizing protocol. An
+        // intrinsic pass over such cells throws in debug ("RenderBox was not
+        // laid out" / relayout-boundary assertions) and silently returns 0 in
+        // release. [_StretchTable] measures via a real layout pass instead.
         final Widget tableContent = ScrollConfiguration(
           behavior: ScrollConfiguration.of(
             context,
@@ -286,10 +293,7 @@ class _MarkdownTableState extends State<MarkdownTable> {
             controller: _controller,
             scrollDirection: Axis.horizontal,
             physics: const ClampingScrollPhysics(),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minWidth: maxWidth),
-              child: IntrinsicWidth(child: table),
-            ),
+            child: _StretchTable(minWidth: maxWidth, child: table),
           ),
         );
 
@@ -496,4 +500,55 @@ class _ContentColumnWidth extends TableColumnWidth {
 
   @override
   double? flex(Iterable<RenderBox> cells) => 1.0;
+}
+
+/// Sizes a [Table] to the larger of its natural content width and [minWidth],
+/// then re-lays it out at that tight width so the table's flex columns fill the
+/// space. The natural width is found with a real (unbounded-width) layout pass —
+/// never the intrinsic-sizing protocol — so cells containing a [LayoutBuilder]
+/// (e.g. [GptMarkdown]) don't trip the debug intrinsic assertions that
+/// [IntrinsicWidth] would.
+class _StretchTable extends SingleChildRenderObjectWidget {
+  const _StretchTable({required this.minWidth, required Widget super.child});
+
+  final double minWidth;
+
+  @override
+  _RenderStretchTable createRenderObject(BuildContext context) =>
+      _RenderStretchTable(minWidth);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderStretchTable renderObject,
+  ) {
+    renderObject.minWidth = minWidth;
+  }
+}
+
+class _RenderStretchTable extends RenderProxyBox {
+  _RenderStretchTable(this._minWidth);
+
+  double _minWidth;
+  set minWidth(double value) {
+    if (value == _minWidth) return;
+    _minWidth = value;
+    markNeedsLayout();
+  }
+
+  @override
+  void performLayout() {
+    final child = this.child;
+    if (child == null) {
+      size = constraints.smallest;
+      return;
+    }
+    // 1. Measure natural size with an unbounded layout (legal — this is a
+    //    layout pass, so LayoutBuilder cells are fine).
+    child.layout(const BoxConstraints(), parentUsesSize: true);
+    final width = math.max(child.size.width, _minWidth);
+    // 2. Re-layout tight on width so the table's flex columns stretch to fill.
+    child.layout(BoxConstraints.tightFor(width: width), parentUsesSize: true);
+    size = constraints.constrain(child.size);
+  }
 }
