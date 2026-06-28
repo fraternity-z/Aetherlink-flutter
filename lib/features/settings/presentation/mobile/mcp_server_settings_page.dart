@@ -660,11 +660,17 @@ class _AddedBuiltinRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final tags = server.tags ?? const <String>[];
+    // 内置工具列表更紧凑：更小的头像、更窄的内边距、单行描述；智能助手保持原样。
+    final compact = !isAssistant;
+    final avatar = compact ? 30.0 : 40.0;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+      padding: compact
+          ? const EdgeInsets.fromLTRB(14, 8, 10, 8)
+          : const EdgeInsets.fromLTRB(16, 12, 12, 12),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment:
+            compact ? CrossAxisAlignment.center : CrossAxisAlignment.start,
         children: [
           Expanded(
             child: InkWell(
@@ -676,28 +682,29 @@ class _AddedBuiltinRow extends ConsumerWidget {
                 }
               },
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment:
+                    compact ? CrossAxisAlignment.center : CrossAxisAlignment.start,
                 children: [
                   Container(
-                    width: 40,
-                    height: 40,
+                    width: avatar,
+                    height: avatar,
                     decoration: BoxDecoration(
                       color: color.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(avatar / 2),
                     ),
                     child: Icon(
                       isAssistant ? LucideIcons.bot : LucideIcons.cpu,
-                      size: 20,
+                      size: compact ? 16 : 20,
                       color: color,
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  SizedBox(width: compact ? 10 : 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Wrap(
-                          spacing: 8,
+                          spacing: compact ? 6 : 8,
                           runSpacing: 4,
                           crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
@@ -716,10 +723,10 @@ class _AddedBuiltinRow extends ConsumerWidget {
                           ],
                         ),
                         if ((server.description ?? '').isNotEmpty) ...[
-                          const SizedBox(height: 6),
+                          SizedBox(height: compact ? 3 : 6),
                           Text(
                             server.description!,
-                            maxLines: 2,
+                            maxLines: compact ? 1 : 2,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.bodySmall?.copyWith(
                               height: 1.4,
@@ -727,7 +734,7 @@ class _AddedBuiltinRow extends ConsumerWidget {
                             ),
                           ),
                         ],
-                        if (tags.isNotEmpty) ...[
+                        if (tags.isNotEmpty && !compact) ...[
                           const SizedBox(height: 8),
                           Wrap(
                             spacing: 6,
