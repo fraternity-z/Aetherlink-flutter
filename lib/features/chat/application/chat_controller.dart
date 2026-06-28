@@ -3224,6 +3224,7 @@ class ChatController extends _$ChatController {
     if (!toolsState.enabled) {
       addReadSkill();
       _maybeInjectWebSearch(tools, routes);
+      _maybeInjectMemorySearch(tools, routes);
       if (tools.isEmpty) return const _McpSetup.disabled();
       return _McpSetup(mode: toolsState.mode, tools: tools, routes: routes);
     }
@@ -3234,6 +3235,7 @@ class ChatController extends _$ChatController {
       routes[kMcpBridgeToolName] = const _BridgeToolRoute();
       addReadSkill();
       _maybeInjectWebSearch(tools, routes);
+      _maybeInjectMemorySearch(tools, routes);
       return _McpSetup(mode: toolsState.mode, tools: tools, routes: routes);
     }
 
@@ -3294,6 +3296,7 @@ class ChatController extends _$ChatController {
 
     addReadSkill();
     _maybeInjectWebSearch(tools, routes);
+    _maybeInjectMemorySearch(tools, routes);
     return _McpSetup(mode: toolsState.mode, tools: tools, routes: routes);
   }
 
@@ -3308,6 +3311,19 @@ class ChatController extends _$ChatController {
     if (routes.containsKey(_kWebSearchToolName)) return;
     tools.add(_kWebSearchToolDefinition);
     routes[_kWebSearchToolName] = const _WebSearchToolRoute();
+  }
+
+  /// Injects the `search_memory` tool when 记忆 is on and its 注入方式 is `tool`
+  /// (the model fetches memories on demand instead of having them dumped into
+  /// the prompt) — independent of the MCP 工具 总开关, mirroring web search.
+  void _maybeInjectMemorySearch(
+    List<McpToolDefinition> tools,
+    Map<String, _ToolRoute> routes,
+  ) {
+    if (!shouldExposeMemorySearchTool(ref)) return;
+    if (routes.containsKey(kSearchMemoryToolName)) return;
+    tools.add(kSearchMemoryToolDefinition);
+    routes[kSearchMemoryToolName] = const _MemorySearchToolRoute();
   }
 
   /// Executes one tool call along its [route]: a built-in runs in-process via
@@ -3351,6 +3367,8 @@ class ChatController extends _$ChatController {
         return _runBridgeTool(args);
       case _WebSearchToolRoute():
         return _runWebSearch(args);
+      case _MemorySearchToolRoute():
+        return _runMemorySearch(args);
     }
   }
 
@@ -3584,6 +3602,25 @@ class ChatController extends _$ChatController {
     );
   }
 
+  /// Executes one `search_memory` call: retrieves the user's long-term memories
+  /// most relevant to `query` (across global + this assistant's private bucket)
+  /// via the memory seam. Best-effort — the seam returns a notice string rather
+  /// than throwing when memory is off or nothing matches.
+  Future<McpToolResult> _runMemorySearch(Map<String, Object?> args) async {
+    final query = (args['query'] as String?)?.trim() ?? '';
+    if (query.isEmpty) {
+      return const McpToolResult('检索关键词不能为空', isError: true);
+    }
+    final limit = (args['limit'] as num?)?.toInt();
+    final text = await searchChatMemories(
+      ref,
+      assistantId: _assistantId,
+      query: query,
+      limit: limit,
+    );
+    return McpToolResult(text);
+  }
+
   /// The system prompt for a turn: in 提示词注入 mode the tool catalogue is woven
   /// into [base] (web `buildSystemPrompt`); otherwise [base] is used as-is and
   /// tools ride the native `tools` field. When 网络搜索 is active, a hint is
@@ -3598,6 +3635,13 @@ class ChatController extends _$ChatController {
           '你可以使用 builtin_web_search 工具搜索互联网获取实时信息。'
           '当用户的问题可能需要最新信息时，请主动使用搜索工具。'
           '搜索结果中如果有有用的链接，请在回答中引用。';
+      prompt = (prompt ?? '') + hint;
+    }
+    if (shouldExposeMemorySearchTool(ref)) {
+      const hint =
+          '\n\n[长期记忆已启用] '
+          '你可以使用 search_memory 工具检索关于用户的长期记忆（偏好、事实、历史）。'
+          '当回答可能依赖用户的个人偏好或既往信息时，请先调用该工具确认。';
       prompt = (prompt ?? '') + hint;
     }
     return prompt;
@@ -3899,6 +3943,12 @@ class _BridgeToolRoute extends _ToolRoute {
 /// The `builtin_web_search` tool injected when the 网络搜索 session mode is on.
 class _WebSearchToolRoute extends _ToolRoute {
   const _WebSearchToolRoute() : super(_kWebSearchToolName);
+}
+
+/// The `search_memory` tool injected when 记忆 注入方式 is `tool`, letting the
+/// model retrieve the user's long-term memories on demand.
+class _MemorySearchToolRoute extends _ToolRoute {
+  const _MemorySearchToolRoute() : super(kSearchMemoryToolName);
 }
 
 /// A tool executed over a live connection to [server] via

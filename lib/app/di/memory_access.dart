@@ -24,6 +24,7 @@ import 'package:aetherlink_flutter/features/memory/domain/memory_settings.dart';
 import 'package:aetherlink_flutter/features/memory/domain/memory_vector.dart';
 import 'package:aetherlink_flutter/features/models/domain/current_model.dart';
 import 'package:aetherlink_flutter/features/settings/application/auxiliary_model_controller.dart';
+import 'package:aetherlink_flutter/shared/domain/mcp_tool.dart';
 import 'package:aetherlink_flutter/shared/domain/model.dart';
 import 'package:aetherlink_flutter/shared/domain/model_provider.dart';
 
@@ -98,7 +99,12 @@ Future<ChatMemoryInjection> collectChatMemoryInjection(
 }) async {
   final settings = ref.read(memorySettingsControllerProvider);
   final mode = settings.injectionMode;
-  if (!settings.enabled || mode == MemoryInjectionMode.off) {
+  // `tool` exposes a `search_memory` tool and lets the model fetch memories on
+  // demand, so nothing is dumped into the prompt up front (the tool is injected
+  // separately by the chat pipeline via [shouldExposeMemorySearchTool]).
+  if (!settings.enabled ||
+      mode == MemoryInjectionMode.off ||
+      mode == MemoryInjectionMode.tool) {
     return const ChatMemoryInjection();
   }
   final store = ref.read(chatMemoryStoreProvider);
@@ -333,6 +339,88 @@ Future<String?> buildChatMemoryInjection(
       query: query,
     ))
         .section;
+
+/// The model-facing name of the on-demand memory retrieval tool exposed when
+/// 记忆 注入方式 is `tool`.
+const String kSearchMemoryToolName = 'search_memory';
+
+/// The `search_memory` tool definition (the [MemoryInjectionMode.tool] surface).
+/// Instead of dumping memories into the prompt every turn, this lets the model
+/// query the user's long-term memories on demand. Injected by the chat pipeline
+/// when [shouldExposeMemorySearchTool] is true.
+const McpToolDefinition kSearchMemoryToolDefinition = McpToolDefinition(
+  name: kSearchMemoryToolName,
+  description:
+      '检索关于「用户」的长期记忆（稳定的偏好、事实、身份背景与历史事件）。\n\n'
+      '使用场景：\n'
+      '- 需要回忆用户的偏好、习惯或个人信息时\n'
+      '- 用户提到「我之前说过」「你还记得吗」之类的内容时\n'
+      '- 回答前需要确认与用户相关的背景事实时\n'
+      '检索仅匹配已存储的记忆；若无相关记忆会明确告知。',
+  inputSchema: {
+    'type': 'object',
+    'properties': {
+      'query': {
+        'type': 'string',
+        'description': '检索关键词或自然语言描述，用于匹配相关记忆',
+      },
+      'limit': {
+        'type': 'number',
+        'description': '返回的最大记忆条数（可选，默认使用记忆设置中的 topK）',
+      },
+    },
+    'required': ['query'],
+  },
+);
+
+/// Whether the `search_memory` tool should be exposed this turn: 记忆 is enabled
+/// and its 注入方式 is [MemoryInjectionMode.tool]. Read here (the seam) so the
+/// chat feature never imports `memory/application` directly.
+bool shouldExposeMemorySearchTool(Ref ref) {
+  final settings = ref.read(memorySettingsControllerProvider);
+  return settings.enabled && settings.injectionMode == MemoryInjectionMode.tool;
+}
+
+/// Backs the `search_memory` tool: retrieves the memories most relevant to
+/// [query] across the chat-global bucket plus the [assistantId]'s private
+/// bucket, records them as hits (命中强化 / activation), and returns a numbered
+/// model-facing listing. Reuses the same retrieval the injection pipeline uses
+/// ([_semanticTopK] — semantic top-k via the configured embedding model,
+/// auto-falling back to keyword matching), capped at [limit] (or the configured
+/// topK). Returns a short notice string when memory is off, the query is empty,
+/// or nothing matches — never throws, so a retrieval hiccup can't break a turn.
+Future<String> searchChatMemories(
+  Ref ref, {
+  String? assistantId,
+  required String query,
+  int? limit,
+}) async {
+  final settings = ref.read(memorySettingsControllerProvider);
+  if (!settings.enabled) return '记忆功能已关闭，没有可检索的长期记忆。';
+  final q = query.trim();
+  if (q.isEmpty) return '检索关键词为空，请提供要查找的内容。';
+
+  final store = ref.read(chatMemoryStoreProvider);
+  final global = await store.list(const MemoryScope.chatGlobal());
+  final assistant = (assistantId == null || assistantId.isEmpty)
+      ? const <MemoryItem>[]
+      : await store.list(MemoryScope.chatAssistant(assistantId));
+  final pool = <MemoryItem>[...global, ...assistant];
+  if (pool.isEmpty) return '当前没有任何长期记忆。';
+
+  final topK = (limit != null && limit > 0) ? limit : settings.topK;
+  final effectiveSettings = settings.copyWith(topK: topK);
+  final selected = await _semanticTopK(ref, pool, q, effectiveSettings);
+  if (selected.isEmpty) return '没有找到与「$q」相关的记忆。';
+  await store.recordHits(selected);
+
+  final buffer = StringBuffer()
+    ..writeln('找到 ${selected.length} 条与「$q」相关的记忆：');
+  for (var i = 0; i < selected.length; i++) {
+    buffer.writeln('${i + 1}. ${selected[i].content.trim()}');
+  }
+  return buffer.toString().trimRight();
+}
 
 /// The 自动写入 gate for autoAnalyze, read from [MemorySettingsController].
 /// Lives here because the chat feature (which drives extraction after a turn)
