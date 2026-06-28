@@ -32,9 +32,9 @@ import 'package:aetherlink_flutter/shared/widgets/instant_switch_tab_view.dart';
 ///    single/multi-key mode, key input, multi-key entry point, base-URL
 ///    completion preview, Responses-API toggle (wired into the request layer)
 ///    and the advanced-API entry point.
-///  * Tab 模型: 测试模式 toggle + 长期显示测试按钮, search, the 自动获取 / 自定义端点 /
-///    手动添加 tool row and the grouped model list (edit / delete / test per
-///    row, 2-step group delete).
+///  * Tab 模型: a single (persisted) 测试 toggle that shows/hides a per-row
+///    test button, search, the 自动获取 / 自定义端点 / 手动添加 tool row and the
+///    grouped model list (edit / delete / test per row, 2-step group delete).
 ///
 /// CORS-plugin features are intentionally dropped (no CORS concern on Flutter).
 class ModelProviderDetailPage extends ConsumerStatefulWidget {
@@ -511,8 +511,7 @@ class _ModelsTab extends ConsumerStatefulWidget {
 class _ModelsTabState extends ConsumerState<_ModelsTab> {
   final TextEditingController _searchController = TextEditingController();
   String _search = '';
-  bool _testMode = false;
-  bool _alwaysShowTestButton = false;
+  bool _showTestButtons = false;
   bool _fetching = false;
   String? _testingModelId;
   bool _kvLoaded = false;
@@ -552,7 +551,7 @@ class _ModelsTabState extends ConsumerState<_ModelsTab> {
         .getSetting('alwaysShowTestButton_${widget.provider.id}');
     if (!mounted) return;
     if (result == 'true') {
-      setState(() => _alwaysShowTestButton = true);
+      setState(() => _showTestButtons = true);
     }
   }
 
@@ -587,17 +586,8 @@ class _ModelsTabState extends ConsumerState<_ModelsTab> {
     final provider = widget.provider;
     final theme = Theme.of(context);
 
-    // Scoped watch — only this widget rebuilds when the current model changes.
-    final currentAsync = ref.watch(appCurrentModelProvider);
-    final currentModelId = currentAsync.maybeWhen(
-      data: (current) => current != null && current.provider.id == provider.id
-          ? current.model.id
-          : null,
-      orElse: () => null,
-    );
-
     final groups = _computeGroups();
-    final showTest = _testMode || _alwaysShowTestButton;
+    final showTest = _showTestButtons;
 
     // 2 header items (toolbar, search) + body items (groups or 1 empty state).
     const headerCount = 2;
@@ -648,18 +638,16 @@ class _ModelsTabState extends ConsumerState<_ModelsTab> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                _TestModeToggle(
-                  active: _testMode,
-                  alwaysShow: _alwaysShowTestButton,
-                  onToggleTestMode: () =>
-                      setState(() => _testMode = !_testMode),
-                  onToggleAlwaysShow: (v) {
-                    setState(() => _alwaysShowTestButton = v);
+                _TestButtonChip(
+                  active: _showTestButtons,
+                  onToggle: () {
+                    final next = !_showTestButtons;
+                    setState(() => _showTestButtons = next);
                     ref
                         .read(appSettingsStoreProvider)
                         .saveSetting(
                           'alwaysShowTestButton_${provider.id}',
-                          v.toString(),
+                          next.toString(),
                         );
                   },
                 ),
@@ -786,19 +774,12 @@ class _ModelsTabState extends ConsumerState<_ModelsTab> {
                 for (final model in models)
                   _ModelRow(
                     model: model,
-                    isCurrent: model.id == currentModelId,
                     showTest: showTest,
                     testing: _testingModelId == model.id,
                     testDisabled: _testingModelId != null,
                     onTap: () => context.push(
                       AppRouter.editModelPath(provider.id, modelId: model.id),
                     ),
-                    onSelect: () => ref
-                        .read(modelStoreProvider.notifier)
-                        .selectCurrentModel(
-                          providerId: provider.id,
-                          modelId: model.id,
-                        ),
                     onTest: () => _testModel(provider, model),
                     onDelete: () => _deleteModel(provider, model.id),
                   ),
@@ -1307,28 +1288,24 @@ class _UrlPreview extends StatelessWidget {
   }
 }
 
-/// A single model row: a current-selection radio, the model name / id, an
-/// optional 测试 button (when test mode is on) and edit (row tap) / delete.
+/// A single model row: the model name / id, an optional 测试 button (when the
+/// 测试 toggle is on) and edit (row tap) / delete.
 class _ModelRow extends StatelessWidget {
   const _ModelRow({
     required this.model,
-    required this.isCurrent,
     required this.showTest,
     required this.testing,
     required this.testDisabled,
     required this.onTap,
-    required this.onSelect,
     required this.onTest,
     required this.onDelete,
   });
 
   final Model model;
-  final bool isCurrent;
   final bool showTest;
   final bool testing;
   final bool testDisabled;
   final VoidCallback onTap;
-  final VoidCallback onSelect;
   final VoidCallback onTest;
   final VoidCallback onDelete;
 
@@ -1342,20 +1319,6 @@ class _ModelRow extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 3),
         child: Row(
           children: [
-            GestureDetector(
-              onTap: onSelect,
-              child: Padding(
-                padding: const EdgeInsets.all(4),
-                child: Icon(
-                  isCurrent ? LucideIcons.circleCheck : LucideIcons.circle,
-                  size: 18,
-                  color: isCurrent
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-            const SizedBox(width: 6),
             Expanded(
               child: Text(
                 model.name,
@@ -1488,105 +1451,56 @@ class _CompactActionChip extends StatelessWidget {
   }
 }
 
-/// Test mode toggle — two clearly tappable chips side-by-side.
+/// A single toggle chip controlling whether each model row shows a 测试
+/// (connection-test) button. The choice is persisted per provider, so it
+/// survives navigation — no separate "test mode" vs "pin" distinction.
 ///
-///  ┌─────────┐ ┌──────┐
-///  │ 🧪 测试  │ │ 📌 固定│
-///  └─────────┘ └──────┘
-class _TestModeToggle extends StatelessWidget {
-  const _TestModeToggle({
-    required this.active,
-    required this.alwaysShow,
-    required this.onToggleTestMode,
-    required this.onToggleAlwaysShow,
-  });
+///  ┌─────────┐
+///  │ 🧪 测试  │   (highlighted when active)
+///  └─────────┘
+class _TestButtonChip extends StatelessWidget {
+  const _TestButtonChip({required this.active, required this.onToggle});
 
   final bool active;
-  final bool alwaysShow;
-  final VoidCallback onToggleTestMode;
-  final ValueChanged<bool> onToggleAlwaysShow;
+  final VoidCallback onToggle;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final testColor = active
-        ? theme.colorScheme.error
+    final color = active
+        ? theme.colorScheme.primary
         : (theme.brightness == Brightness.dark
               ? const Color(0xFF66BB6A)
               : const Color(0xFF2E7D32));
-    final pinColor = alwaysShow
-        ? theme.colorScheme.primary
-        : theme.colorScheme.onSurfaceVariant;
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // Test mode chip
-        Material(
-          color: testColor.withValues(alpha: active ? 0.18 : 0.1),
+    return Tooltip(
+      message: active ? '隐藏每个模型的测试按钮' : '在每个模型上显示测试按钮',
+      child: Material(
+        color: color.withValues(alpha: active ? 0.18 : 0.1),
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          onTap: onToggle,
           borderRadius: BorderRadius.circular(10),
-          child: InkWell(
-            onTap: onToggleTestMode,
-            borderRadius: BorderRadius.circular(10),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(LucideIcons.flaskConical, size: 14, color: testColor),
-                  const SizedBox(width: 4),
-                  Text(
-                    active ? '退出' : '测试',
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: testColor,
-                    ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(LucideIcons.flaskConical, size: 14, color: color),
+                const SizedBox(width: 4),
+                Text(
+                  '测试',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: color,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
-        const SizedBox(width: 6),
-        // Pin / always-show chip
-        Tooltip(
-          message: alwaysShow ? '取消固定测试按钮' : '固定测试按钮到模型列表',
-          child: Material(
-            color: pinColor.withValues(alpha: alwaysShow ? 0.15 : 0.08),
-            borderRadius: BorderRadius.circular(10),
-            child: InkWell(
-              onTap: () => onToggleAlwaysShow(!alwaysShow),
-              borderRadius: BorderRadius.circular(10),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 6,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      alwaysShow ? LucideIcons.pin : LucideIcons.pinOff,
-                      size: 14,
-                      color: pinColor,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      alwaysShow ? '已固定' : '固定',
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: pinColor,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
