@@ -130,6 +130,52 @@ class WorkspaceDiffResult {
   final String? backupPath;
 }
 
+/// Result of a one-shot [WorkspaceBackend.exec] command (设计文档 §8.1). The
+/// stream is *not* a PTY — stdout / stderr are captured separately and decoded
+/// as UTF-8 so the model gets clean, parseable text (no ANSI / prompt noise).
+class WorkspaceExecResult {
+  const WorkspaceExecResult({
+    required this.stdout,
+    required this.stderr,
+    required this.exitCode,
+    this.timedOut = false,
+  });
+
+  final String stdout;
+  final String stderr;
+
+  /// The command's exit status. -1 when it could not be determined (e.g. the
+  /// command was killed on timeout before reporting one).
+  final int exitCode;
+
+  /// True when the command was killed because it exceeded its timeout.
+  final bool timedOut;
+}
+
+/// An interactive PTY shell session (设计文档 §8.2), backend-neutral so the
+/// terminal UI never imports dartssh2. [output] streams combined stdout+stderr
+/// bytes; [write] feeds stdin; [resize] tells the remote a new window size.
+abstract class WorkspaceShellSession {
+  /// Combined stdout + stderr bytes from the remote shell. Broadcast, so the
+  /// terminal view can (re)subscribe freely.
+  Stream<List<int>> get output;
+
+  /// Sends [data] to the shell's stdin.
+  void write(List<int> data);
+
+  /// Informs the remote of a new terminal window size, in character cells.
+  void resize(int columns, int rows);
+
+  /// Completes when the shell exits or the transport drops.
+  Future<void> get done;
+
+  /// The shell's exit status once [done] completes, or null when unknown.
+  int? get exitCode;
+
+  /// Tears down the channel (sends EOF and stops piping output).
+  Future<void> close();
+}
+
 /// Diff payload format for [WorkspaceBackend.applyDiff].
 enum WorkspaceDiffFormat { searchReplace, unified }
 
@@ -318,6 +364,32 @@ abstract class WorkspaceBackend {
     int? rangeEndLine,
   }) =>
       throw UnsupportedError('applyDiff is not supported by this backend');
+
+  // ===== command execution =====
+
+  /// Runs [command] once (non-interactive, **not** a PTY) and collects its
+  /// output. Only valid when [WorkspaceCapabilities.canExec] is true; backends
+  /// that can't exec throw [UnsupportedError]. [workingDirectory] defaults to
+  /// the workspace root; [timeout] kills the command if it overruns (the result
+  /// then has `timedOut = true`). Intended for the AI `run_command` tool — see
+  /// 设计文档 §8.1.
+  Future<WorkspaceExecResult> exec(
+    String command, {
+    String? workingDirectory,
+    Duration? timeout,
+  }) =>
+      throw UnsupportedError('exec is not supported by this backend');
+
+  /// Opens an interactive PTY shell (设计文档 §8.2) for a human terminal UI.
+  /// Only valid when [WorkspaceCapabilities.canExec] is true. [columns] / [rows]
+  /// seed the initial window size; [workingDirectory] (when given) `cd`s there
+  /// first. Backends that can't exec throw [UnsupportedError].
+  Future<WorkspaceShellSession> startShell({
+    int columns = 80,
+    int rows = 24,
+    String? workingDirectory,
+  }) =>
+      throw UnsupportedError('startShell is not supported by this backend');
 
   /// Searches under [directory] for entries matching [query]. When [useRegex]
   /// is true, [query] is treated as a (case-insensitive) regular expression.

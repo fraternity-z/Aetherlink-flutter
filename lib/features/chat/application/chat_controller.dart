@@ -1767,7 +1767,13 @@ class ChatController extends _$ChatController {
         unawaited(_refreshTopicPreview(turnTopicId));
         unawaited(_generateTitle(turnTopicId));
         unawaited(_maybeGenerateSuggestions(turnTopicId, List.of(views)));
-        unawaited(_maybeExtractMemory(turnTopicId));
+        // Extract first, then let 整理记忆 (Dream) opportunistically distil the
+        // fresh episodic memories — both best-effort and off the turn's path.
+        unawaited(
+          _maybeExtractMemory(
+            turnTopicId,
+          ).then((_) => maybeAutoConsolidateChatMemories(ref)),
+        );
         return;
       } on Object catch (error) {
         // User pressed Stop: cancelling the token aborts the HTTP request, which
@@ -3704,6 +3710,8 @@ class ChatController extends _$ChatController {
         return '对「${_pathTail(args['path'])}」应用 diff 修改';
       case 'replace_in_file':
         return '在「${_pathTail(args['path'])}」中替换「${args['search'] ?? ''}」';
+      case 'run_command':
+        return '在工作区执行命令：${args['command'] ?? ''}';
       default:
         return '执行操作: $toolName';
     }
