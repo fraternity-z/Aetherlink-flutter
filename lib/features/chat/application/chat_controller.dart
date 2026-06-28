@@ -311,7 +311,15 @@ class ChatController extends _$ChatController {
     );
     final request = LlmChatRequest(
       model: effective,
-      system: _systemFor(mcp, await _buildSystemPromptWith(memInjection.section)),
+      system: _systemFor(
+        mcp,
+        await _buildSystemPromptWith(
+          memInjection.section,
+          modelName: effective.name,
+          modelId: effective.id,
+          providerName: current.provider.name,
+        ),
+      ),
       messages: messages,
       maxTokens: ctx.maxTokens,
       temperature: params.temperature,
@@ -512,7 +520,14 @@ class ChatController extends _$ChatController {
     final thinkingGateway = gatewayFactory.forModel(thinking.model);
     final generatingGateway = gatewayFactory.forModel(generating.model);
 
-    final system = _systemFor(await _mcpSetup(), await _buildSystemPrompt());
+    final system = _systemFor(
+      await _mcpSetup(),
+      await _buildSystemPrompt(
+        modelName: comboLabel,
+        modelId: comboModel.id,
+        providerName: '模型组合',
+      ),
+    );
 
     try {
       final reasoningBuf = StringBuffer();
@@ -721,7 +736,14 @@ class ChatController extends _$ChatController {
     );
     final request = LlmChatRequest(
       model: effective,
-      system: _systemFor(mcp, await _buildSystemPrompt()),
+      system: _systemFor(
+        mcp,
+        await _buildSystemPrompt(
+          modelName: effective.name,
+          modelId: effective.id,
+          providerName: current.provider.name,
+        ),
+      ),
       messages: messages,
       maxTokens: ctx.maxTokens,
       temperature: params.temperature,
@@ -844,7 +866,14 @@ class ChatController extends _$ChatController {
     );
     final request = LlmChatRequest(
       model: effective,
-      system: _systemFor(mcp, await _buildSystemPrompt()),
+      system: _systemFor(
+        mcp,
+        await _buildSystemPrompt(
+          modelName: effective.name,
+          modelId: effective.id,
+          providerName: current.provider.name,
+        ),
+      ),
       messages: messages,
       maxTokens: ctx.maxTokens,
       temperature: params.temperature,
@@ -3001,12 +3030,18 @@ class ChatController extends _$ChatController {
 
   /// Assembles the system prompt for a conversation turn: the assistant's
   /// 系统提示词 combined with the 话题提示词 (the port of apiPreparation's
-  /// `assistantPrompt [+ '\n\n' + topicPrompt]`), then appends the enabled
-  /// 系统提示词变量 (time / location / OS). Returns `null` when the assembled
-  /// prompt is empty, so requests with no system prompt stay system-less
-  /// (variables are append-only and never injected into an empty prompt,
-  /// matching the web `injectSystemPromptVariables`).
-  Future<String?> _buildSystemPrompt() async {
+  /// `assistantPrompt [+ '\n\n' + topicPrompt]`), substitutes inline
+  /// placeholder variables ([replaceSystemPromptPlaceholders] — `{model_name}`,
+  /// `{assistant_name}`, `{cur_date}` …), then appends the enabled 系统提示词变量
+  /// (time / location / OS / locale). Returns `null` when the assembled prompt
+  /// is empty, so requests with no system prompt stay system-less (the
+  /// append-only variables are never injected into an empty prompt, matching the
+  /// web `injectSystemPromptVariables`).
+  Future<String?> _buildSystemPrompt({
+    required String modelName,
+    required String modelId,
+    required String providerName,
+  }) async {
     final assistant = await _repo.getAssistant(_assistantId);
     final assistantPrompt = assistant?.systemPrompt ?? '';
     final topicId = _topicId;
@@ -3032,7 +3067,16 @@ class ChatController extends _$ChatController {
       ref,
       assistantId: _assistantId,
     );
-    return _composeSystemPrompt(base, memorySection);
+    return _composeSystemPrompt(
+      replaceSystemPromptPlaceholders(
+        base,
+        modelName: modelName,
+        modelId: modelId,
+        assistantName: assistant?.name ?? '',
+        providerName: providerName,
+      ),
+      memorySection,
+    );
   }
 
   /// Injects prompt variables into [base] and appends the resolved
@@ -3052,7 +3096,12 @@ class ChatController extends _$ChatController {
 
   /// Like [_buildSystemPrompt] but reuses a pre-resolved [memorySection] (from
   /// [collectChatMemoryInjection]) so the memory store is read once per turn.
-  Future<String?> _buildSystemPromptWith(String? memorySection) async {
+  Future<String?> _buildSystemPromptWith(
+    String? memorySection, {
+    required String modelName,
+    required String modelId,
+    required String providerName,
+  }) async {
     final assistant = await _repo.getAssistant(_assistantId);
     final assistantPrompt = assistant?.systemPrompt ?? '';
     final topicId = _topicId;
@@ -3074,7 +3123,16 @@ class ChatController extends _$ChatController {
                     : topicPrompt)
               : assistantPrompt);
 
-    return _composeSystemPrompt(base, memorySection);
+    return _composeSystemPrompt(
+      replaceSystemPromptPlaceholders(
+        base,
+        modelName: modelName,
+        modelId: modelId,
+        assistantName: assistant?.name ?? '',
+        providerName: providerName,
+      ),
+      memorySection,
+    );
   }
 
   /// The skills bound to the assistant ([skillIds]) that are currently enabled,

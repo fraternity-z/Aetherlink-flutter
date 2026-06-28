@@ -147,7 +147,13 @@ class _AgentPromptsSettingsPageState extends State<AgentPromptsSettingsPage>
                 index: _index,
                 sizing: StackFit.expand,
                 children: [
-                  const _TabList(children: [_SystemPromptVariablesPanel()]),
+                  const _TabList(
+                    children: [
+                      _SystemPromptVariablesPanel(),
+                      SizedBox(height: 12),
+                      _PlaceholderVariablesCard(),
+                    ],
+                  ),
                   _TabList(
                     children: [
                       _searchCard(theme),
@@ -565,6 +571,18 @@ class _SystemPromptVariablesPanelState
                         ? _hintBox(theme, '将在系统提示词末尾自动追加操作系统信息')
                         : null,
                   ),
+                  const SizedBox(height: 14),
+                  _variableRow(
+                    theme: theme,
+                    icon: LucideIcons.languages,
+                    label: '语言变量',
+                    description: '注入当前语言：${getLocaleString()}',
+                    value: config.enableLocaleVariable,
+                    onChanged: controller.setEnableLocaleVariable,
+                    expansion: config.enableLocaleVariable
+                        ? _hintBox(theme, '将在系统提示词末尾自动追加界面语言，便于模型用对应语言回复')
+                        : null,
+                  ),
                 ],
               ),
             ),
@@ -582,6 +600,8 @@ class _SystemPromptVariablesPanelState
         const _StatusChip(icon: LucideIcons.mapPin, label: '位置'),
       if (config.enableOSVariable)
         const _StatusChip(icon: LucideIcons.monitor, label: '系统'),
+      if (config.enableLocaleVariable)
+        const _StatusChip(icon: LucideIcons.languages, label: '语言'),
     ];
     if (chips.isEmpty) {
       return Text(
@@ -897,6 +917,143 @@ class _StatusChip extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The 占位符变量 reference card (the inline-substitution counterpart of the
+/// append-only [_SystemPromptVariablesPanel]): lists the placeholders that
+/// [replaceSystemPromptPlaceholders] resolves at send time. Unlike the toggles,
+/// these are used by typing them into an assistant / topic 系统提示词, so the card
+/// is purely informational — tapping a row copies the token to the clipboard.
+class _PlaceholderVariablesCard extends StatefulWidget {
+  const _PlaceholderVariablesCard();
+
+  @override
+  State<_PlaceholderVariablesCard> createState() =>
+      _PlaceholderVariablesCardState();
+}
+
+class _PlaceholderVariablesCardState extends State<_PlaceholderVariablesCard> {
+  static const List<(String, String)> _placeholders = [
+    ('{cur_date}', '当前日期，如 2026-06-28'),
+    ('{cur_time}', '当前时间，如 14:30'),
+    ('{cur_datetime}', '当前日期时间'),
+    ('{model_name}', '当前模型名称'),
+    ('{model_id}', '当前模型 ID'),
+    ('{assistant_name}', '当前助手名称'),
+    ('{provider_name}', '当前供应商名称'),
+  ];
+
+  String? _copiedToken;
+  Timer? _copiedResetTimer;
+
+  @override
+  void dispose() {
+    _copiedResetTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _copy(String token) async {
+    await Clipboard.setData(ClipboardData(text: token));
+    if (!mounted) return;
+    setState(() => _copiedToken = token);
+    _copiedResetTimer?.cancel();
+    _copiedResetTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _copiedToken = null);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return _OutlinedCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _CardHeader(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '📝 占位符变量',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '在助手或话题的系统提示词中写入下列占位符，发送时会自动替换为实际值。点按可复制。',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontSize: 12.5,
+                    height: 1.35,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Divider(height: 1, color: theme.dividerColor),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            child: Column(
+              children: [
+                for (final (token, desc) in _placeholders)
+                  _placeholderRow(theme, token, desc),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _placeholderRow(ThemeData theme, String token, String desc) {
+    final copied = _copiedToken == token;
+    final accent = theme.colorScheme.primary;
+    return InkWell(
+      onTap: () => _copy(token),
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                color: accent.withValues(alpha: 0.08),
+              ),
+              child: Text(
+                token,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontSize: 12.5,
+                  fontFamily: 'monospace',
+                  color: accent,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                desc,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontSize: 12.5,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              copied ? LucideIcons.check : LucideIcons.copy,
+              size: 15,
+              color: copied ? accent : theme.colorScheme.onSurfaceVariant,
+            ),
+          ],
+        ),
       ),
     );
   }
