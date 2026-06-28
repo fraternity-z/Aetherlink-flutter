@@ -20,6 +20,7 @@ import 'package:aetherlink_flutter/features/chat/application/parameter_settings_
 import 'package:aetherlink_flutter/features/chat/application/web_search_settings_controller.dart';
 import 'package:aetherlink_flutter/features/chat/application/chat_state.dart';
 import 'package:aetherlink_flutter/features/chat/application/mcp_tools_controller.dart';
+import 'package:aetherlink_flutter/features/chat/application/ocr_service.dart';
 import 'package:aetherlink_flutter/features/chat/application/sidebar_controllers.dart';
 import 'package:aetherlink_flutter/features/chat/application/sidebar_settings_controller.dart';
 import 'package:aetherlink_flutter/features/chat/application/streaming_registry.dart';
@@ -51,6 +52,7 @@ import 'package:aetherlink_flutter/shared/domain/mcp_server.dart';
 import 'package:aetherlink_flutter/shared/domain/mcp_tool.dart';
 import 'package:aetherlink_flutter/shared/domain/model.dart';
 import 'package:aetherlink_flutter/shared/domain/model_provider.dart';
+import 'package:aetherlink_flutter/shared/domain/model_type.dart';
 import 'package:aetherlink_flutter/shared/domain/skill.dart';
 import 'package:aetherlink_flutter/shared/domain/topic.dart';
 import 'package:aetherlink_flutter/shared/mcp_tools/builtin_tool_catalog.dart';
@@ -294,18 +296,15 @@ class ChatController extends _$ChatController {
     final params = _parameterFields();
     final contextViews = _trimViews(views, ctx.contextCount);
     final regexRules = await _sendingRegexRules();
+    final messages = await _buildLlmMessages(
+      contextViews,
+      chatModel: effective,
+      regexRules: regexRules,
+    );
     final request = LlmChatRequest(
       model: effective,
       system: _systemFor(mcp, await _buildSystemPrompt()),
-      messages: [
-        for (final view in contextViews)
-          if (view.role != MessageRole.assistant || view.text.isNotEmpty)
-            LlmMessage(
-              role: view.role,
-              content: _requestContent(view, regexRules: regexRules),
-              images: _requestImages(view),
-            ),
-      ],
+      messages: messages,
       maxTokens: ctx.maxTokens,
       temperature: params.temperature,
       topP: params.topP,
@@ -681,18 +680,15 @@ class ChatController extends _$ChatController {
     final params = _parameterFields();
     final contextViews = _trimViews(views.sublist(0, index), ctx.contextCount);
     final regexRules = await _sendingRegexRules();
+    final messages = await _buildLlmMessages(
+      contextViews,
+      chatModel: effective,
+      regexRules: regexRules,
+    );
     final request = LlmChatRequest(
       model: effective,
       system: _systemFor(mcp, await _buildSystemPrompt()),
-      messages: [
-        for (final view in contextViews)
-          if (view.role != MessageRole.assistant || view.text.isNotEmpty)
-            LlmMessage(
-              role: view.role,
-              content: _requestContent(view, regexRules: regexRules),
-              images: _requestImages(view),
-            ),
-      ],
+      messages: messages,
       maxTokens: ctx.maxTokens,
       temperature: params.temperature,
       topP: params.topP,
@@ -807,18 +803,15 @@ class ChatController extends _$ChatController {
     final params = _parameterFields();
     final contextViews = _trimViews(snapshot.messages, ctx.contextCount);
     final regexRules = await _sendingRegexRules();
+    final messages = await _buildLlmMessages(
+      contextViews,
+      chatModel: effective,
+      regexRules: regexRules,
+    );
     final request = LlmChatRequest(
       model: effective,
       system: _systemFor(mcp, await _buildSystemPrompt()),
-      messages: [
-        for (final view in contextViews)
-          if (view.role != MessageRole.assistant || view.text.isNotEmpty)
-            LlmMessage(
-              role: view.role,
-              content: _requestContent(view, regexRules: regexRules),
-              images: _requestImages(view),
-            ),
-      ],
+      messages: messages,
       maxTokens: ctx.maxTokens,
       temperature: params.temperature,
       topP: params.topP,
@@ -906,12 +899,12 @@ class ChatController extends _$ChatController {
     final history = _trimViews(views.sublist(0, msgIndex), ctx.contextCount);
     final regexRules = await _sendingRegexRules();
     final messages = <LlmMessage>[
-      for (final view in history)
-        LlmMessage(
-          role: view.role,
-          content: _requestContent(view, regexRules: regexRules),
-          images: _requestImages(view),
-        ),
+      ...await _buildLlmMessages(
+        history,
+        chatModel: effective,
+        regexRules: regexRules,
+        dropEmptyAssistant: false,
+      ),
       // The partial response as an assistant turn so the model continues.
       if (partialText.isNotEmpty)
         LlmMessage(role: MessageRole.assistant, content: partialText),
@@ -2605,6 +2598,71 @@ class ChatController extends _$ChatController {
         base64Data: 'data:$mimeType;base64,$encoded',
       ),
     );
+  }
+
+  /// Builds the [LlmMessage] list for [views], applying the OCR fallback when
+  /// [chatModel] cannot see images: for each image-bearing turn the images are
+  /// recognized by the configured OCR (vision) model and the resulting text is
+  /// prepended to the turn's content (and the images dropped), so a non-vision
+  /// chat model still receives the image content as text. When no OCR fallback
+  /// applies the messages are built exactly as before (images sent inline).
+  ///
+  /// [dropEmptyAssistant] mirrors the existing
+  /// `role != assistant || text.isNotEmpty` filter; pass `false` for paths that
+  /// build raw history (e.g. continue-generating) and append their own turns.
+  Future<List<LlmMessage>> _buildLlmMessages(
+    Iterable<ChatMessageView> views, {
+    required Model chatModel,
+    List<AssistantRegex>? regexRules,
+    bool dropEmptyAssistant = true,
+  }) async {
+    final ocr = await _resolveOcrFallback(chatModel);
+    final messages = <LlmMessage>[];
+    for (final view in views) {
+      if (dropEmptyAssistant &&
+          view.role == MessageRole.assistant &&
+          view.text.isEmpty) {
+        continue;
+      }
+      var content = _requestContent(view, regexRules: regexRules);
+      var images = _requestImages(view);
+      if (ocr != null && images != null && images.isNotEmpty) {
+        final ocrText = await ref
+            .read(ocrServiceProvider)
+            .recognizeImages(
+              images: images,
+              ocrModel: ocr.model,
+              prompt: ocr.prompt,
+            );
+        if (ocrText != null && ocrText.isNotEmpty) {
+          content = content.isEmpty ? ocrText : '$ocrText\n\n$content';
+          images = null;
+        }
+      }
+      messages.add(
+        LlmMessage(role: view.role, content: content, images: images),
+      );
+    }
+    return messages;
+  }
+
+  /// Resolves the OCR fallback for [chatModel]: returns the configured OCR
+  /// (vision) model + prompt only when [chatModel] itself lacks vision support
+  /// (`ModelType.vision`) and a usable 辅助模型 → OCR model is configured.
+  /// Returns `null` otherwise, so vision-capable models keep receiving images
+  /// directly and image turns are left untouched when no OCR model is set
+  /// (footnote: "未设置时使用聊天模型识别图片").
+  Future<({Model model, String prompt})?> _resolveOcrFallback(
+    Model chatModel,
+  ) async {
+    final supportsVision =
+        chatModel.modelTypes?.contains(ModelType.vision) ?? false;
+    if (supportsVision) return null;
+    final auxState = ref.read(auxiliaryModelControllerProvider);
+    final providers = await ref.read(appModelProvidersProvider.future);
+    final resolved = resolveAuxiliaryModel(auxState.ocrModelKey, providers);
+    if (resolved == null) return null;
+    return (model: effectiveModelFor(resolved), prompt: auxState.ocrPrompt);
   }
 
   /// The image parts on [view] (raw base64) for a multimodal request, decoded
