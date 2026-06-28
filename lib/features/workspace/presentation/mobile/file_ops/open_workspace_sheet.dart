@@ -72,6 +72,20 @@ class _OpenWorkspaceSheet extends ConsumerWidget {
                 },
               ),
             ),
+            // Termux / SSH backends are designed (WorkspaceBackendType) but not
+            // implemented yet — kept here as 「敬请期待」 placeholders so the
+            // intended scope is visible. Tapping just explains they're pending.
+            const SizedBox(height: 4),
+            const _ComingSoonTile(
+              icon: LucideIcons.terminal,
+              title: 'Termux',
+              subtitle: '同机 Termux 路径，文件 + 终端',
+            ),
+            const _ComingSoonTile(
+              icon: LucideIcons.server,
+              title: 'SSH / 远程',
+              subtitle: '远程机器，文件 + 终端 (Remote-SSH)',
+            ),
             if (recent.asData?.value.isNotEmpty ?? false) ...[
               const SizedBox(height: 16),
               Padding(
@@ -166,4 +180,48 @@ Future<void> openRecent(WidgetRef ref, Workspace workspace) async {
 void _switchTo(WidgetRef ref, Workspace workspace) {
   ref.read(currentWorkspaceProvider.notifier).open(workspace);
   ref.read(openWorkspaceFilesProvider.notifier).reset();
+}
+
+/// A disabled backend entry shown with a 「敬请期待」 badge. Tapping closes the
+/// sheet and surfaces a snackbar; no workspace is opened. Placeholder for the
+/// not-yet-implemented Termux / SSH backends.
+class _ComingSoonTile extends StatelessWidget {
+  const _ComingSoonTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
+    return ListTile(
+      leading: Icon(icon, color: muted),
+      title: Text(title),
+      subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
+      trailing: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          '敬请期待',
+          style: theme.textTheme.labelSmall?.copyWith(color: muted),
+        ),
+      ),
+      onTap: () {
+        final messenger = ScaffoldMessenger.of(context);
+        Navigator.of(context).pop();
+        messenger.showSnackBar(
+          SnackBar(content: Text('$title 敬请期待')),
+        );
+      },
+    );
+  }
 }
