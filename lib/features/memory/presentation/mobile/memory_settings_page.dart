@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import 'package:aetherlink_flutter/app/di/memory_access.dart';
 import 'package:aetherlink_flutter/app/di/model_access.dart';
 import 'package:aetherlink_flutter/features/chat/presentation/widgets/model_selector_dialog.dart';
 import 'package:aetherlink_flutter/features/memory/application/memory_settings_controller.dart';
@@ -193,6 +194,59 @@ class MemorySettingsPage extends ConsumerWidget {
                       max: 168,
                       step: 1,
                       onChanged: controller.setAutoConsolidateIntervalHours,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          const _GroupLabel('原生向量（实验）'),
+          const SizedBox(height: 6),
+          _OutlinedCard(
+            child: Column(
+              children: [
+                _ToggleRow(
+                  icon: LucideIcons.zap,
+                  accent: const Color(0xFFEC4899),
+                  label: 'sqlite-vec 原生向量检索',
+                  description: '实验性：用原生 sqlite-vec 扩展做向量最近邻检索（纯向量，不含激活加权）。扩展可能在部分平台无法加载，加载失败会自动退回 Dart 余弦。建议先用下方按钮检测可用性',
+                  value: config.useSqliteVec,
+                  onChanged: controller.setUseSqliteVec,
+                ),
+                Divider(height: 1, color: theme.dividerColor),
+                InkWell(
+                  onTap: () {
+                    final result = ref.read(sqliteVecServiceProvider).probe();
+                    final msg = result.available
+                        ? 'sqlite-vec 可用（${result.version ?? '未知版本'}）'
+                        : 'sqlite-vec 不可用：当前平台无法加载扩展，已自动退回 Dart 余弦';
+                    ScaffoldMessenger.of(context)
+                      ..hideCurrentSnackBar()
+                      ..showSnackBar(SnackBar(content: Text(msg)));
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 14,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          LucideIcons.stethoscope,
+                          size: 18,
+                          color: theme.colorScheme.primary,
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          '检测 sqlite-vec 可用性',
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),

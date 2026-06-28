@@ -1401,7 +1401,7 @@ packages:
     source: hosted
     version: "1.0.1"
   sqlite3:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: sqlite3
       sha256: "37356bcb56ce0d9404d602c41e4bdb7765e7e9732a3e47adb3d98c556a6abdad"
@@ -1416,6 +1416,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.6.0+eol"
+  sqlite_vec:
+    dependency: "direct main"
+    description:
+      name: sqlite_vec
+      sha256: b43bf5df91b519fd2e92777900268accbc35d8f1c2d269bb0b31ab794b4ace01
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.7-alpha.3"
   sqlparser:
     dependency: transitive
     description:

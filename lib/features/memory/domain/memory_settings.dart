@@ -67,6 +67,12 @@ abstract class MemorySettings with _$MemorySettings {
     /// with 保守遗忘衰减). When false, retrieval falls back to pure cosine.
     @Default(true) bool activationRanking,
 
+    /// 实验性: when true, semantic top-k is selected by the native sqlite-vec
+    /// extension (pure-vector KNN) instead of the Dart cosine path. Off by
+    /// default — the extension may not load on every platform, and retrieval
+    /// always falls back to Dart cosine when it is unavailable.
+    @Default(false) bool useSqliteVec,
+
     /// The `providerId:modelId` key of the embedding model used for semantic
     /// retrieval (null → not configured, semantic/auto fall back to keyword).
     String? embeddingModelKey,

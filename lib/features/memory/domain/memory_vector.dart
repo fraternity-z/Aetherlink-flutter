@@ -1,6 +1,15 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:aetherlink_flutter/features/memory/domain/memory_item.dart';
+
+/// Encodes [vector] as the little-endian float32 BLOB that sqlite-vec expects
+/// for a `FLOAT[n]` column. Pure (no native dependency) so it stays unit-testable
+/// independently of whether the sqlite-vec extension is actually loadable.
+/// Mobile/desktop targets are little-endian, matching `Float32List`'s host
+/// layout.
+Uint8List float32Blob(List<double> vector) =>
+    Float32List.fromList(vector).buffer.asUint8List();
 
 /// Weights for the ACT-R-style activation score used to rank retrieval
 /// candidates. Cosine [similarity] is the dominant term (its weight is
