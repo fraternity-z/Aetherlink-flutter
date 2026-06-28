@@ -108,12 +108,23 @@ class RemoteSshBackends ... // family or 自管池
 
 > 注意 `WorkspaceStore.open()` 现以 `(backendType, root)` 判重；引入 connection 后判重键要含 host/port/user。
 
-### 5.2 凭据安全存储（必须决策）
+### 5.2 凭据存储（已决策：先明文，后期按需加密）
 
-- 现状：项目**无 `flutter_secure_storage`**，LLM API key 走明文 Drift KV。
-- SSH 密码/私钥比 API key 更敏感，**不能进明文「最近打开」JSON**。
-- **建议**：引入 `flutter_secure_storage`（Android Keystore / iOS Keychain 后端），SSH 秘密（password / private key / passphrase）按 `keyId` 存其中；`Workspace.connection` 只存非秘密参数 + `keyId` 引用。
-- 备选：若想零新依赖，至少把秘密单独存、不随 recent 列表导出/备份（注意 backup feature 不应导出它）。
+**结论**：首期**不引入加密**，SSH 秘密与现有 LLM API key 保持一致走明文 Drift KV；
+secure storage 作为可选的后续硬化项，有需求时再统一上（API key + SSH 一起迁）。
+
+理由：
+- 这是开源个人客户端——用户把自己机器的凭据存在自己手机上，威胁面有限；Android 已按 UID 沙箱隔离，别的 app 读不到 app 数据。
+- 项目现状 LLM API key 即明文存；只给 SSH 单独加密反而不一致。
+- 零新依赖、零包体增量、实现更快。
+- "代码开源"与加密无关（secure storage 的安全来自系统 Keystore，非算法保密）。
+
+首期必须做到的**最低防护**（成本几乎为零）：
+- SSH 秘密（password / private key / passphrase）虽明文存，但**必须排除出 backup / 导出功能**（这是明文方案下最大的真实泄露面：`adb backup`/云备份带出 DB）。检查 `features/backup/` 不导出 SSH 凭据键。
+- 秘密单独存（独立 KV 键，按 `keyId` 引用），不混进「最近打开」JSON——这样将来迁 secure storage 时只换存取实现，`Workspace.connection` 不动。
+- 私钥优先支持带 passphrase。
+
+后续硬化（非首期）：引入 `flutter_secure_storage`（Android Keystore / iOS Keychain），把 `keyId → 秘密` 的存取换成它即可，上层无感。
 
 ---
 
@@ -169,10 +180,10 @@ WorkspaceShellSession startShell({String? cwd, int cols, int rows});
 
 ## 9. 安全
 
-- **凭据存储**：见 §5.2（secure storage）。
-- **Host key 校验**：dartssh2 不自动信任。采用 **TOFU（首次信任并记住指纹）**：首次连接展示指纹让用户确认 → 存指纹；后续比对，变更则告警（防中间人）。指纹同样进 secure storage / 专表。
+- **凭据存储**：见 §5.2（首期明文 KV + 排除备份；secure storage 列为后续硬化）。
+- **Host key 校验**：dartssh2 不自动信任。采用 **TOFU（首次信任并记住指纹）**：首次连接展示指纹让用户确认 → 存指纹；后续比对，变更则告警（防中间人）。指纹存普通 KV 即可（非秘密）。
 - **连接超时 / 重试**：connect / 每次 IO 设超时，避免 UI 卡死。
-- **私钥保护**：支持带 passphrase 的私钥；passphrase 也进 secure storage。
+- **私钥保护**：支持带 passphrase 的私钥。
 - **备份隔离**：backup feature 不得导出 SSH 秘密与 host key。
 
 ---
@@ -200,7 +211,7 @@ WorkspaceShellSession startShell({String? cwd, int cols, int rows});
 - **后端事件总线单测**：仿 `local_saf_backend_watch_test.dart`，注入假 SFTP/transport 验证各变更方法 `_emit` 正确事件。
 - **SFTP 映射单测**：用假 `SftpClient`（或 dartssh2 的可注入 socket）验证 listDir/read/write 调用与 `WorkspaceEntry` 转换。
 - **集成测试（可选/手动）**：本机起 `sshd`（或 Docker `linuxserver/openssh-server`）做端到端连通、读写、终端冒烟。
-- **安全单测**：host key TOFU 比对、凭据不落明文 recent。
+- **安全单测**：host key TOFU 比对、凭据存独立 KV 键且不混进「最近打开」JSON、备份导出不含凭据键。
 
 ---
 
@@ -209,7 +220,7 @@ WorkspaceShellSession startShell({String? cwd, int cols, int rows});
 > 每阶段独立可合并、可验证；先打通只读，逐步加写/终端。
 
 - **SSH-0 依赖与接缝**：加 `dartssh2`；`workspace_text_ops.dart` 纯函数 + 单测；`workspaceBackendProvider` ssh 分支不再抛错（返回未连接的 `RemoteSshBackend`）。
-- **SSH-1 只读浏览**：连接配置表单 + 凭据安全存储 + host key TOFU；SFTP `listDir/readFile/readFileBytes/getFileInfo/stat`；文件树/查看器走真连接。`verifyAccess`。
+- **SSH-1 只读浏览**：连接配置表单 + 凭据明文 KV（独立键 + 排除备份）+ host key TOFU；SFTP `listDir/readFile/readFileBytes/getFileInfo/stat`；文件树/查看器走真连接。`verifyAccess`。
 - **SSH-2 写与编辑**：SFTP 写族 + `workspace_text_ops` 接 `applyDiff/replace/insert/readFileRange`；编辑器 `_writable` 解耦为能力判断；事件总线 `_emit`（实时刷新）；`searchFiles`（远端 grep/find）。
 - **SSH-3 终端**：抽象新增 `startShell`/`WorkspaceShellSession`；SSH PTY 接入；第三页终端 UI（`xterm` 调研）。
 - **SSH-4（可选）外部监听**：`inotifywait` / 轮询补 `watch` 外部变更。
@@ -219,7 +230,7 @@ WorkspaceShellSession startShell({String? cwd, int cols, int rows});
 
 ## 14. 未决策点（请拍板）
 
-1. **凭据存储**：引入 `flutter_secure_storage`（推荐）还是沿用现明文 KV？
+1. ~~**凭据存储**：引入 `flutter_secure_storage` 还是沿用现明文 KV？~~ → **已决策：首期明文 KV（独立键 + 排除备份），secure storage 列为后续硬化项。**
 2. **连接参数落点**：`Workspace.connection` 子对象（推荐）还是 `ssh://` URI 编码进 `root`？
 3. **Termux 入口**：占位提示「请在 Termux 开 sshd」并跳 SSH 配置，还是单独做 intent 版 `TermuxBackend`？
 4. **终端组件**：用 `xterm` 还是自绘最小终端？
@@ -229,4 +240,4 @@ WorkspaceShellSession startShell({String? cwd, int cols, int rows});
 
 ## 15. 一句话总结
 
-> 用 `dartssh2` 的 **SFTP + PTY** 实现 `RemoteSshBackend`，SFTP 近 1:1 映射现有 `WorkspaceBackend`，把 SAF 原生独有的 applyDiff/replace/range 智能抽成**共享纯 Dart 文本工具**；凭据走 secure storage + host key TOFU；终端给抽象补 `startShell`。做完 SSH，Termux 跑个 sshd 即白嫖。
+> 用 `dartssh2` 的 **SFTP + PTY** 实现 `RemoteSshBackend`，SFTP 近 1:1 映射现有 `WorkspaceBackend`，把 SAF 原生独有的 applyDiff/replace/range 智能抽成**共享纯 Dart 文本工具**；凭据首期明文 KV（独立键 + 排除备份，后期可换 secure storage）+ host key TOFU；终端给抽象补 `startShell`。做完 SSH，Termux 跑个 sshd 即白嫖。
