@@ -33,5 +33,14 @@ void main() {
     expect(caps.canWrite, isTrue);
     expect(caps.isRemote, isTrue);
     expect(caps.canWatch, isTrue);
+    expect(caps.canExec, isTrue);
+  });
+
+  test('exec is unsupported on the mock backend (SSH-3 default)', () {
+    expect(MockWorkspaceBackend().capabilities.canExec, isFalse);
+    expect(
+      () => MockWorkspaceBackend().exec('echo hi'),
+      throwsA(isA<UnsupportedError>()),
+    );
   });
 }

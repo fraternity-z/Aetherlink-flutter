@@ -9,6 +9,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:aetherlink_flutter/shared/domain/mcp_tool.dart';
+import 'package:aetherlink_flutter/shared/mcp_tools/file_editor/file_editor_exec_handlers.dart';
 import 'package:aetherlink_flutter/shared/mcp_tools/file_editor/file_editor_read_handlers.dart';
 import 'package:aetherlink_flutter/shared/mcp_tools/file_editor/file_editor_support.dart';
 import 'package:aetherlink_flutter/shared/mcp_tools/file_editor/file_editor_write_handlers.dart';
@@ -29,6 +30,7 @@ FileEditorRisk? fileEditorRiskLevel(String toolName) {
     case 'write_to_file':
     case 'apply_diff':
     case 'delete_file':
+    case 'run_command':
       return FileEditorRisk.high;
     case 'create_file':
     case 'rename_file':
@@ -86,6 +88,8 @@ Future<McpToolResult> runFileEditorTool(
         return await applyDiff(ref, args);
       case 'replace_in_file':
         return await replaceInFile(ref, args);
+      case 'run_command':
+        return await runCommand(ref, args);
     }
     return fileEditorError('未知的工具: $toolName');
   } on FileEditorError catch (e) {

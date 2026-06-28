@@ -943,6 +943,31 @@ const Map<String, List<McpToolDefinition>> kBuiltinMcpTools = {
         'required': ['path', 'search', 'replace'],
       },
     ),
+    McpToolDefinition(
+      name: 'run_command',
+      description: '在工作区所在机器上执行一条 shell 命令并返回 stdout/stderr/退出码（非交互、非 PTY）。'
+          '仅远程类后端（SSH / Termux）支持；本地 SAF 工作区不支持。属高危操作，会触发用户确认。'
+          '适合跑构建/测试/git/查询等一次性命令；不要用于需要交互输入的程序。',
+      inputSchema: {
+        'type': 'object',
+        'properties': {
+          'command': {'type': 'string', 'description': '要执行的 shell 命令'},
+          'workspace': {
+            'type': 'string',
+            'description': '工作区编号（如 "1"）或 ID 或名称（可选，默认当前工作区）',
+          },
+          'cwd': {
+            'type': 'string',
+            'description': '工作目录绝对路径（可选，默认工作区根目录）',
+          },
+          'timeout_ms': {
+            'type': 'number',
+            'description': '超时毫秒数（可选，默认 60000；超时会终止命令）',
+          },
+        },
+        'required': ['command'],
+      },
+    ),
   ],
 };
 

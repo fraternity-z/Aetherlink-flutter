@@ -3704,6 +3704,8 @@ class ChatController extends _$ChatController {
         return '对「${_pathTail(args['path'])}」应用 diff 修改';
       case 'replace_in_file':
         return '在「${_pathTail(args['path'])}」中替换「${args['search'] ?? ''}」';
+      case 'run_command':
+        return '在工作区执行命令：${args['command'] ?? ''}';
       default:
         return '执行操作: $toolName';
     }

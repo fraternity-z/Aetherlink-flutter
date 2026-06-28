@@ -55,6 +55,15 @@ class LocalSafBackend implements WorkspaceBackend {
   Stream<WorkspaceChangeEvent> watch() => _changes.stream;
 
   @override
+  Future<WorkspaceExecResult> exec(
+    String command, {
+    String? workingDirectory,
+    Duration? timeout,
+  }) =>
+      // SAF has no shell (canExec=false); callers must gate on capabilities.
+      throw UnsupportedError('exec is not supported by the SAF backend');
+
+  @override
   Future<String> echo(String value) async {
     final result = await _plugin.echo(value: value);
     return result.value;
