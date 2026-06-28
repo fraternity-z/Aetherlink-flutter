@@ -9,7 +9,9 @@ import 'package:aetherlink_flutter/core/platform/impl/device_info_impl.dart';
 import 'package:aetherlink_flutter/core/platform/impl/file_system_impl.dart';
 import 'package:aetherlink_flutter/core/platform/impl/image_picker_impl.dart';
 import 'package:aetherlink_flutter/core/platform/impl/share_impl.dart';
+import 'package:aetherlink_flutter/core/platform/impl/termux_impl.dart';
 import 'package:aetherlink_flutter/core/platform/share_api.dart';
+import 'package:aetherlink_flutter/core/platform/termux_api.dart';
 
 part 'platform_providers.g.dart';
 
@@ -32,3 +34,6 @@ ShareApi shareApi(Ref ref) => const PluginShareApi();
 
 @riverpod
 DeviceInfoApi deviceInfoApi(Ref ref) => PluginDeviceInfoApi();
+
+@riverpod
+TermuxApi termuxApi(Ref ref) => const PluginTermuxApi();

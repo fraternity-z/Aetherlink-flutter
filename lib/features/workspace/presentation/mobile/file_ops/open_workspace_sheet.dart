@@ -16,6 +16,7 @@ import 'package:aetherlink_flutter/features/workspace/application/workspace_stor
 import 'package:aetherlink_flutter/features/workspace/application/workspace_view_providers.dart';
 import 'package:aetherlink_flutter/features/workspace/domain/workspace.dart';
 import 'package:aetherlink_flutter/features/workspace/presentation/mobile/file_ops/ssh_connection_form_sheet.dart';
+import 'package:aetherlink_flutter/features/workspace/presentation/mobile/file_ops/termux_setup_sheet.dart';
 
 /// Opens the workspace picker sheet (recent list + 「打开本地文件夹」).
 Future<void> showOpenWorkspaceSheet(BuildContext context, WidgetRef ref) {
@@ -73,8 +74,7 @@ class _OpenWorkspaceSheet extends ConsumerWidget {
                 },
               ),
             ),
-            // SSH is live (read-only browse, SSH-1). Termux stays a placeholder
-            // until its one-tap setup lands (设计文档 §10.5 / Termux-A).
+            // SSH and Termux are both live now (设计文档 §10.5 / Termux-A).
             const SizedBox(height: 4),
             Material(
               color: theme.colorScheme.primary.withValues(alpha: 0.12),
@@ -96,10 +96,25 @@ class _OpenWorkspaceSheet extends ConsumerWidget {
                 },
               ),
             ),
-            const _ComingSoonTile(
-              icon: LucideIcons.terminal,
-              title: 'Termux',
-              subtitle: '同机 Termux 路径，文件 + 终端',
+            const SizedBox(height: 4),
+            Material(
+              color: theme.colorScheme.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+              child: ListTile(
+                leading: Icon(
+                  LucideIcons.terminal,
+                  color: theme.colorScheme.primary,
+                ),
+                title: const Text('Termux'),
+                subtitle: const Text('同机 Termux 一键接入，文件 + 终端'),
+                onTap: () async {
+                  // Capture the navigator before popping — this sheet's context
+                  // is defunct afterwards but navigator.context stays valid.
+                  final navigator = Navigator.of(context);
+                  navigator.pop();
+                  await showTermuxSetupSheet(navigator.context, parentRef);
+                },
+              ),
             ),
             if (recent.asData?.value.isNotEmpty ?? false) ...[
               const SizedBox(height: 16),
@@ -198,48 +213,4 @@ Future<void> openRecent(WidgetRef ref, Workspace workspace) async {
 void _switchTo(WidgetRef ref, Workspace workspace) {
   ref.read(currentWorkspaceProvider.notifier).open(workspace);
   ref.read(openWorkspaceFilesProvider.notifier).reset();
-}
-
-/// A disabled backend entry shown with a 「敬请期待」 badge. Tapping closes the
-/// sheet and surfaces a snackbar; no workspace is opened. Placeholder for the
-/// not-yet-implemented Termux / SSH backends.
-class _ComingSoonTile extends StatelessWidget {
-  const _ComingSoonTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final muted = theme.colorScheme.onSurfaceVariant;
-    return ListTile(
-      leading: Icon(icon, color: muted),
-      title: Text(title),
-      subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
-      trailing: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(
-          '敬请期待',
-          style: theme.textTheme.labelSmall?.copyWith(color: muted),
-        ),
-      ),
-      onTap: () {
-        final messenger = ScaffoldMessenger.of(context);
-        Navigator.of(context).pop();
-        messenger.showSnackBar(
-          SnackBar(content: Text('$title 敬请期待')),
-        );
-      },
-    );
-  }
 }

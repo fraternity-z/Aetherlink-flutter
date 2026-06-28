@@ -64,5 +64,9 @@
         <intent>
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
+        <!-- Termux one-tap setup (设计文档 §10.5 / Termux-A): make com.termux
+             visible to PackageManager queries on Android 11+ so MainActivity can
+             detect whether (and from where) Termux is installed. -->
+        <package android:name="com.termux" />
     </queries>
 </manifest>

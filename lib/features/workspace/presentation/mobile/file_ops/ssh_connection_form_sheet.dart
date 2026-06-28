@@ -19,10 +19,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:aetherlink_flutter/features/workspace/application/ssh_connection_pool.dart';
 import 'package:aetherlink_flutter/features/workspace/application/ssh_connection_store.dart';
 import 'package:aetherlink_flutter/features/workspace/application/ssh_credential_store.dart';
-import 'package:aetherlink_flutter/features/workspace/application/workspace_store.dart';
-import 'package:aetherlink_flutter/features/workspace/application/workspace_view_providers.dart';
+import 'package:aetherlink_flutter/features/workspace/application/ssh_workspace_setup.dart';
 import 'package:aetherlink_flutter/features/workspace/domain/ssh_connection.dart';
-import 'package:aetherlink_flutter/features/workspace/domain/workspace.dart';
 
 /// Opens the SSH connection form sheet. [parentRef] is the page's ref so the
 /// provider writes (open workspace / switch) outlive the dismissed sheet.
@@ -230,27 +228,13 @@ class _SshConnectionFormSheetState
         ? '${_username.text.trim()}@${_host.text.trim()}'
         : _label.text.trim();
 
-    final connection =
-        await ref.read(sshConnectionStoreProvider.notifier).add(
-              label: label,
-              host: _host.text.trim(),
-              port: int.tryParse(_port.text.trim()) ?? 22,
-              username: _username.text.trim(),
-              authType: _authType,
-              hostKeyFingerprint: fingerprint,
-            );
-    await ref.read(sshCredentialStoreProvider.notifier).save(
-          connection.credentialKeyId,
-          SshCredential(
-            password: _authType == SshAuthType.password ? _password.text : null,
-            privateKeyPem:
-                _authType == SshAuthType.privateKey ? _privateKey.text : null,
-            passphrase: _authType == SshAuthType.privateKey &&
-                    _passphrase.text.isNotEmpty
-                ? _passphrase.text
-                : null,
-          ),
-        );
+    final connection = await persistSshConnection(
+      connections: ref.read(sshConnectionStoreProvider.notifier),
+      credentials: ref.read(sshCredentialStoreProvider.notifier),
+      label: label,
+      params: _params(expectedFingerprint: fingerprint),
+      fingerprint: fingerprint,
+    );
 
     await _openWorkspaceFor(connection, root: root);
   }
@@ -364,16 +348,7 @@ class _SshConnectionFormSheetState
     SshConnection connection, {
     required String root,
   }) async {
-    final ref = widget.parentRef;
-    final workspace = await ref.read(workspaceStoreProvider.notifier).open(
-          name: connection.label,
-          backendType: WorkspaceBackendType.ssh,
-          root: root,
-          displayPath: '${connection.username}@${connection.host}:$root',
-          connectionId: connection.id,
-        );
-    ref.read(currentWorkspaceProvider.notifier).open(workspace);
-    ref.read(openWorkspaceFilesProvider.notifier).reset();
+    await openAndSwitchSshWorkspace(widget.parentRef, connection, root: root);
     if (mounted) Navigator.of(context).pop();
   }
 
