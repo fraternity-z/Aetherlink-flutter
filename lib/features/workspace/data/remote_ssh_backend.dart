@@ -29,6 +29,13 @@ const int kSshReadFileMaxBytes = 10 * 1024 * 1024;
 
 const Duration _kConnectTimeout = Duration(seconds: 20);
 
+/// How often the external-change poller re-lists watched directories (SSH-4).
+const Duration _kPollInterval = Duration(seconds: 5);
+
+/// LRU cap on polled directories — only the most-recently browsed ones are
+/// watched, so casual deep browsing can't grow the poll set without bound.
+const int _kMaxWatchedDirs = 64;
+
 /// Thrown by connection / read operations with a user-facing message.
 class SshBackendException implements Exception {
   const SshBackendException(this.message);
@@ -59,6 +66,14 @@ class RemoteSshBackend extends WorkspaceBackend {
   SftpClient? _sftp;
   bool _alive = false;
   Future<SftpClient>? _connecting;
+
+  // External-change polling (SSH-4): snapshot of each browsed directory's
+  // children (name → signature) plus an LRU order, re-listed on a timer to
+  // surface edits made *outside* this app (terminal commands, collaborators).
+  final Map<String, Map<String, String>> _watchSnapshots = {};
+  final List<String> _watchOrder = [];
+  Timer? _pollTimer;
+  bool _polling = false;
 
   // In-app change bus (same contract as LocalSafBackend): every mutation made
   // through this backend is emitted so the tree / editor refresh live.
@@ -205,6 +220,16 @@ class RemoteSshBackend extends WorkspaceBackend {
 
   @override
   Future<List<WorkspaceEntry>> listDir(String path) async {
+    final out = await _listEntries(path);
+    // Track this dir so the poller can surface external changes (SSH-4). Only
+    // dirs the UI actually browses pass through here (searchFiles walks SFTP
+    // directly), so the watch set stays scoped to what the user sees.
+    _recordSnapshot(path, out);
+    _ensurePolling();
+    return out;
+  }
+
+  Future<List<WorkspaceEntry>> _listEntries(String path) async {
     final sftp = await _sftpClient();
     final names = await sftp.listdir(path);
     final out = <WorkspaceEntry>[];
@@ -770,9 +795,122 @@ class RemoteSshBackend extends WorkspaceBackend {
   // POSIX single-quote escaping: wrap in '…' and replace embedded ' with '\''.
   static String _shellQuote(String s) => "'${s.replaceAll("'", r"'\''")}'";
 
+  // ===== external-change polling (SSH-4) =====
+
+  // Per-child signature so the poller can tell created / deleted / modified
+  // apart. Files carry size+mtime (so an in-place edit shows up); dirs carry
+  // only their kind (a dir's own mtime is noisy and its child changes surface
+  // when that child dir is itself watched).
+  static String _signatureOf(WorkspaceEntry e) =>
+      e.isDirectory ? 'd' : 'f:${e.size}:${e.mtime}';
+
+  /// A name → signature snapshot of a directory's children (testable).
+  static Map<String, String> snapshotOf(List<WorkspaceEntry> entries) => {
+        for (final e in entries) e.name: _signatureOf(e),
+      };
+
+  /// Pure diff between a [previous] snapshot and the current [entries] of [dir],
+  /// producing the change events the poller emits (exposed for unit tests):
+  /// new children → created, gone children → deleted, files whose size/mtime
+  /// moved → modified (directory mtime churn is intentionally ignored).
+  static List<WorkspaceChangeEvent> diffDirectory(
+    String dir,
+    Map<String, String> previous,
+    List<WorkspaceEntry> entries,
+  ) {
+    final events = <WorkspaceChangeEvent>[];
+    final current = {for (final e in entries) e.name: e};
+    for (final e in entries) {
+      final old = previous[e.name];
+      if (old == null) {
+        events.add(WorkspaceChangeEvent(
+          kind: WorkspaceChangeKind.created,
+          path: e.path,
+          parentPath: dir,
+        ));
+      } else if (old != _signatureOf(e) && !e.isDirectory) {
+        events.add(WorkspaceChangeEvent(
+          kind: WorkspaceChangeKind.modified,
+          path: e.path,
+          parentPath: dir,
+        ));
+      }
+    }
+    for (final name in previous.keys) {
+      if (!current.containsKey(name)) {
+        events.add(WorkspaceChangeEvent(
+          kind: WorkspaceChangeKind.deleted,
+          path: _join(dir, name),
+          parentPath: dir,
+        ));
+      }
+    }
+    return events;
+  }
+
+  void _recordSnapshot(String dir, List<WorkspaceEntry> entries) {
+    _watchSnapshots[dir] = snapshotOf(entries);
+    _watchOrder
+      ..remove(dir)
+      ..add(dir);
+    while (_watchOrder.length > _kMaxWatchedDirs) {
+      _watchSnapshots.remove(_watchOrder.removeAt(0));
+    }
+  }
+
+  // Starts the poll timer when someone is listening for changes; cheap no-op
+  // once running.
+  void _ensurePolling() {
+    if (_pollTimer != null) return;
+    if (_changes.isClosed || !_changes.hasListener) return;
+    _pollTimer = Timer.periodic(_kPollInterval, (_) => _poll());
+  }
+
+  void _stopPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+  }
+
+  Future<void> _poll() async {
+    // Pause when nobody's watching or the transport is down — never force a
+    // reconnect from the poller (a dead host would get hammered otherwise).
+    if (_polling) return;
+    if (_changes.isClosed || !_changes.hasListener) {
+      _stopPolling();
+      return;
+    }
+    if (!_alive || _sftp == null || _watchSnapshots.isEmpty) return;
+    _polling = true;
+    try {
+      for (final dir in List<String>.of(_watchSnapshots.keys)) {
+        final previous = _watchSnapshots[dir];
+        if (previous == null) continue;
+        List<WorkspaceEntry> entries;
+        try {
+          entries = await _listEntries(dir);
+        } catch (_) {
+          // Dir vanished / unreadable: emit a delete for it and stop tracking.
+          _watchSnapshots.remove(dir);
+          _watchOrder.remove(dir);
+          _emit(WorkspaceChangeKind.deleted, dir);
+          continue;
+        }
+        for (final ev in diffDirectory(dir, previous, entries)) {
+          _emit(ev.kind, ev.path, fromPath: ev.fromPath, parentPath: ev.parentPath);
+        }
+        _watchSnapshots[dir] = snapshotOf(entries);
+      }
+    } finally {
+      _polling = false;
+    }
+  }
+
   /// Tears down the transport and the change bus (provider teardown). Safe to
   /// call when never connected.
   Future<void> dispose() async {
+    _stopPolling();
+    _watchSnapshots.clear();
+    _watchOrder.clear();
     _sftp?.close();
     _sftp = null;
     _client?.close();
