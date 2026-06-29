@@ -51,8 +51,26 @@ abstract interface class ChatRepository {
 
   Future<void> saveMessages(List<Message> messages);
 
-  /// Deletes a message together with its blocks.
-  Future<void> deleteMessage(String id);
+  /// Deletes a message together with its blocks. Tree-aware (message-tree
+  /// model): with [cascade] false (default) the node's children are reparented
+  /// onto its parent so the conversation stays connected; with [cascade] true
+  /// the whole subtree is removed. `topic.activeNodeId` is fixed up if it
+  /// pointed at a removed node. The virtual root cannot be deleted this way.
+  Future<void> deleteMessage(String id, {bool cascade = false});
+
+  /// Sets the topic's active leaf (the displayed branch). Pass null to clear.
+  Future<void> setActiveNode(String topicId, String? nodeId);
+
+  /// Content children of [parentId] within a topic (excludes the virtual root),
+  /// chronologically ordered.
+  Future<List<Message>> getChildren(String topicId, String parentId);
+
+  /// The topic's virtual-root message id, or null if it has none.
+  Future<String?> getRootMessageId(String topicId);
+
+  /// Deletes every non-root message of the topic and clears `activeNodeId`,
+  /// keeping the content-less virtual root.
+  Future<void> clearTopicMessages(String topicId);
 
   // --- Message blocks -------------------------------------------------------
 

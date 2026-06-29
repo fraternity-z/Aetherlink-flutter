@@ -714,13 +714,11 @@ class Topics extends _$Topics {
     await _reload();
   }
 
-  /// Clears every message of [id] (清空消息). Flutter has no `clearTopicContent`
-  /// repo method, so it deletes the messages (each cascades its blocks).
+  /// Clears every message of [id] (清空消息). Tree-aware: deletes all non-root
+  /// messages and clears `activeNodeId` while keeping the virtual root
+  /// ([ChatRepository.clearTopicMessages]).
   Future<void> clearMessages(String id) async {
-    final messages = await _repo.getMessagesByTopicId(id);
-    for (final message in messages) {
-      await _repo.deleteMessage(message.id);
-    }
+    await _repo.clearTopicMessages(id);
     final topic = await _repo.getTopic(id);
     if (topic != null) {
       await _repo.saveTopic(

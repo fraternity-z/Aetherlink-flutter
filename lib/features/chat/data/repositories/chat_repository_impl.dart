@@ -146,19 +146,103 @@ class ChatRepositoryImpl implements ChatRepository {
       _db.messageDao.upsertAll(messages);
 
   @override
-  Future<void> deleteMessage(String id) {
+  Future<void> deleteMessage(String id, {bool cascade = false}) {
     return _db.transaction(() async {
-      // Also delete blocks belonging to versions and the latest-content
-      // snapshot so they do not remain as orphaned rows.
       final message = await _db.messageDao.getById(id);
-      if (message != null) {
-        final extraIds = _versionAndSnapshotBlockIds(message);
+      if (message == null) return;
+      // The virtual root is structural — never removed by a message delete.
+      if (message.role == MessageRole.root) return;
+
+      // All content messages of the topic, to walk the tree in memory.
+      final all = await _db.messageDao.getByTopicId(message.topicId);
+      final childrenByParent = <String, List<Message>>{};
+      for (final m in all) {
+        (childrenByParent[m.parentId ?? ''] ??= <Message>[]).add(m);
+      }
+
+      // Collect the ids to remove: just this node (reparent mode) or the whole
+      // subtree (cascade mode).
+      final toRemove = <Message>[];
+      if (cascade) {
+        final stack = <Message>[message];
+        while (stack.isNotEmpty) {
+          final node = stack.removeLast();
+          toRemove.add(node);
+          stack.addAll(childrenByParent[node.id] ?? const []);
+        }
+      } else {
+        toRemove.add(message);
+        // Reparent direct children onto the deleted node's parent.
+        for (final child in childrenByParent[id] ?? const <Message>[]) {
+          await _db.messageDao.upsert(child.copyWith(parentId: message.parentId));
+        }
+      }
+
+      final removedIds = {for (final m in toRemove) m.id};
+
+      // Delete blocks (own + version/snapshot) then the rows.
+      for (final m in toRemove) {
+        final extraIds = _versionAndSnapshotBlockIds(m);
         if (extraIds.isNotEmpty) {
           await _db.messageBlockDao.deleteByIds(extraIds);
         }
+        await _db.messageBlockDao.deleteByMessageId(m.id);
+        await _db.messageDao.deleteById(m.id);
       }
-      await _db.messageBlockDao.deleteByMessageId(id);
-      await _db.messageDao.deleteById(id);
+
+      // Fix the active leaf if it pointed at a removed node — fall back to the
+      // deleted node's parent (null if that was the root); getBranchMessages
+      // tolerates an imperfect leaf via its chronological fallback.
+      final topic = await _db.topicDao.getById(message.topicId);
+      if (topic != null &&
+          topic.activeNodeId != null &&
+          removedIds.contains(topic.activeNodeId)) {
+        final rootId = await _db.messageDao.getRootByTopicId(message.topicId);
+        final fallback = message.parentId == rootId?.id
+            ? null
+            : message.parentId;
+        await _db.topicDao.upsert(topic.copyWith(activeNodeId: fallback));
+      }
+    });
+  }
+
+  @override
+  Future<void> setActiveNode(String topicId, String? nodeId) async {
+    final topic = await _db.topicDao.getById(topicId);
+    if (topic == null) return;
+    await _db.topicDao.upsert(topic.copyWith(activeNodeId: nodeId));
+  }
+
+  @override
+  Future<List<Message>> getChildren(String topicId, String parentId) async {
+    final all = await _db.messageDao.getByTopicId(topicId);
+    return all.where((m) => m.parentId == parentId).toList()
+      ..sort(compareMessagesChronologically);
+  }
+
+  @override
+  Future<String?> getRootMessageId(String topicId) async =>
+      (await _db.messageDao.getRootByTopicId(topicId))?.id;
+
+  @override
+  Future<void> clearTopicMessages(String topicId) {
+    return _db.transaction(() async {
+      final all = await _db.messageDao.getByTopicId(topicId); // excludes root
+      final blockIds = <String>[];
+      for (final m in all) {
+        blockIds.addAll(m.blocks);
+        blockIds.addAll(_versionAndSnapshotBlockIds(m));
+      }
+      if (blockIds.isNotEmpty) {
+        await _db.messageBlockDao.deleteByIds(blockIds);
+      }
+      for (final m in all) {
+        await _db.messageDao.deleteById(m.id);
+      }
+      final topic = await _db.topicDao.getById(topicId);
+      if (topic != null) {
+        await _db.topicDao.upsert(topic.copyWith(activeNodeId: null));
+      }
     });
   }
 

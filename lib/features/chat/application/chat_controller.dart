@@ -2267,15 +2267,27 @@ class ChatController extends _$ChatController {
   /// → `onDelete`). The two-click confirmation lives in the UI; this performs
   /// the actual removal once confirmed. A no-op while a reply is streaming or
   /// when the conversation has not loaded.
-  Future<void> deleteMessage(String messageId) async {
+  Future<void> deleteMessage(String messageId, {bool cascade = false}) async {
     final snapshot = state.value;
     if (snapshot == null || snapshot.isStreaming) return;
-    await _repo.deleteMessage(messageId);
-    final views = snapshot.messages
-        .where((view) => view.id != messageId)
-        .toList();
-    _emit(views, isStreaming: false);
-    unawaited(_refreshTopicPreview());
+    // Tree-aware: by default the node's children are reparented onto its parent
+    // (conversation stays connected); cascade removes the whole subtree. The
+    // structure can change beyond just this row, so reload from the tree.
+    await _repo.deleteMessage(messageId, cascade: cascade);
+    await _refreshTopicPreview();
+    ref.read(chatRefreshProvider.notifier).bump();
+  }
+
+  /// Switches the displayed branch to the one whose leaf is [nodeId] (moves the
+  /// topic's active leaf), then reloads. The next reply will continue from the
+  /// newly-active branch. A no-op while a reply is streaming or with no topic.
+  Future<void> switchToBranch(String nodeId) async {
+    final snapshot = state.value;
+    if (snapshot == null || snapshot.isStreaming) return;
+    final topicId = _topicId;
+    if (topicId == null) return;
+    await _repo.setActiveNode(topicId, nodeId);
+    ref.read(chatRefreshProvider.notifier).bump();
   }
 
   /// Writes [contentByBlockId] back to the message's `main_text` blocks and
