@@ -593,6 +593,10 @@ class Topics extends _$Topics {
         ).copyWith(
           name: '${source.name} (分支)',
           messageIds: clonedMessages.map((m) => m.id).toList(),
+          // Make the cloned branch point the active leaf so the new topic opens
+          // on that path (branch manager shows 当前) and the next reply appends
+          // to it instead of forking off the root.
+          activeNodeId: clonedMessages.isEmpty ? null : clonedMessages.last.id,
           lastMessageTime: clonedMessages.isEmpty
               ? now.toIso8601String()
               : clonedMessages.last.createdAt.toIso8601String(),
