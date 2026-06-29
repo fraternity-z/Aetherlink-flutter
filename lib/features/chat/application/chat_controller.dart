@@ -21,6 +21,7 @@ import 'package:aetherlink_flutter/features/chat/application/parameter_settings_
 import 'package:aetherlink_flutter/features/chat/application/web_search_settings_controller.dart';
 import 'package:aetherlink_flutter/features/chat/application/chat_state.dart';
 import 'package:aetherlink_flutter/features/chat/application/mcp_tools_controller.dart';
+import 'package:aetherlink_flutter/features/chat/application/multi_model_mentions_controller.dart';
 import 'package:aetherlink_flutter/features/chat/application/ocr_service.dart';
 import 'package:aetherlink_flutter/features/chat/application/sidebar_controllers.dart';
 import 'package:aetherlink_flutter/features/chat/application/sidebar_settings_controller.dart';
@@ -36,6 +37,7 @@ import 'package:aetherlink_flutter/features/chat/domain/entities/message_block_s
 import 'package:aetherlink_flutter/features/chat/domain/entities/message_file_reference.dart';
 import 'package:aetherlink_flutter/features/chat/domain/entities/message_role.dart';
 import 'package:aetherlink_flutter/features/chat/domain/entities/message_status.dart';
+import 'package:aetherlink_flutter/features/chat/domain/entities/multi_model_message_style.dart';
 import 'package:aetherlink_flutter/features/chat/domain/entities/message_version.dart';
 import 'package:aetherlink_flutter/features/chat/domain/entities/metrics.dart';
 import 'package:aetherlink_flutter/features/chat/domain/entities/usage.dart';
@@ -75,6 +77,18 @@ import 'package:aetherlink_flutter/shared/utils/regex_replacement.dart';
 import 'package:aetherlink_flutter/shared/utils/system_prompt_variables.dart';
 
 part 'chat_controller.g.dart';
+
+/// One assistant sibling of a multi-model turn: the chosen model and the
+/// streaming message/block/view created for it. Used by [sendMultiModel] to
+/// stream all siblings in parallel.
+typedef _MultiModelSibling = ({
+  CurrentModel current,
+  Model effective,
+  String assistantMessageId,
+  String assistantBlockId,
+  DateTime assistantTime,
+  ChatMessageView assistantView,
+});
 
 /// Orchestrates the chat send/stream loop (application layer).
 ///
@@ -196,6 +210,15 @@ class ChatController extends _$ChatController {
     _truncatedMessageId = null;
     final snapshot = state.value ?? ChatState.initial();
     if (snapshot.isStreaming) return;
+
+    // Staged 多模型发送 mentions take priority: fan this turn out to every chosen
+    // model, then clear the staged selection (a one-shot, like the web).
+    final mentions = ref.read(multiModelMentionsProvider);
+    if (mentions.isNotEmpty) {
+      ref.read(multiModelMentionsProvider.notifier).clear();
+      await sendMultiModel(trimmed, mentions, attachments: attachments);
+      return;
+    }
 
     // Check if a combo is active — if so, delegate to the combo flow.
     final comboState = ref.read(modelComboControllerProvider);
@@ -393,6 +416,282 @@ class ChatController extends _$ChatController {
         memories: injection.memories,
       ),
     ];
+  }
+
+  /// Sends [text] to several models at once (port of the web `useMultiModelSend`
+  /// + Cherry's multi-model turn): one user message, then one streaming
+  /// assistant **sibling per model** — all sharing the user message's `askId`
+  /// and one `siblingsGroupId (>0)` — streamed in parallel. `saveMessage`
+  /// attaches the first sibling to the active path; the display projection
+  /// (`orderBranchMessages`) inlines the whole group so the 对比 group widget can
+  /// lay them out. A blank message, no models, or an in-flight stream are no-ops.
+  Future<void> sendMultiModel(
+    String text,
+    List<CurrentModel> models, {
+    List<ComposerAttachment> attachments = const <ComposerAttachment>[],
+  }) async {
+    final trimmed = text.trim();
+    if ((trimmed.isEmpty && attachments.isEmpty) || models.isEmpty) return;
+    final snapshot = state.value ?? ChatState.initial();
+    if (snapshot.isStreaming) return;
+
+    _truncatedMessageId = null;
+    final topicId = await _ensureTopic();
+    final now = DateTime.now();
+
+    // 1. User message (records the chosen models in `mentions`), persisted and
+    //    attached to the tree by saveMessage.
+    final userMessageId = generateId('msg');
+    final hasText = trimmed.isNotEmpty;
+    final userBlocks = <MessageBlock>[
+      if (hasText)
+        MessageBlock.mainText(
+          id: generateId('block'),
+          messageId: userMessageId,
+          status: MessageBlockStatus.success,
+          createdAt: now,
+          content: trimmed,
+        ),
+      for (final attachment in attachments)
+        _attachmentBlock(
+          messageId: userMessageId,
+          createdAt: now,
+          attachment: attachment,
+        ),
+    ];
+    final userMessage = Message(
+      id: userMessageId,
+      role: MessageRole.user,
+      assistantId: _assistantId,
+      topicId: topicId,
+      createdAt: now,
+      status: MessageStatus.success,
+      mentions: <Model>[for (final m in models) m.model],
+      blocks: <String>[for (final block in userBlocks) block.id],
+    );
+    await _repo.saveMessage(userMessage);
+    for (final block in userBlocks) {
+      await _repo.saveMessageBlock(block);
+    }
+
+    // 2. One sibling-group id for this turn — unique within the topic so the
+    //    projection groups exactly these replies.
+    final siblingsGroupId = await _nextSiblingsGroupId(topicId);
+
+    final userView = ChatMessageView(
+      id: userMessageId,
+      role: MessageRole.user,
+      status: MessageStatus.success,
+      text: trimmed,
+      blocks: userBlocks,
+      createdAt: now,
+    );
+
+    // 3. One streaming assistant sibling per model. The first sibling becomes the
+    //    active leaf (saveMessage advances activeNodeId to it because its parent
+    //    == the active leaf); the rest share its parent + group id, so they sit
+    //    off the active path but are inlined for display. The default layout is
+    //    horizontal when there are 2+ models, fold for one.
+    final defaultStyle = models.length > 1
+        ? MultiModelMessageStyle.horizontal
+        : MultiModelMessageStyle.fold;
+    final siblings = <_MultiModelSibling>[];
+    final assistantViews = <ChatMessageView>[];
+    for (var i = 0; i < models.length; i++) {
+      final current = models[i];
+      final effective = effectiveModelFor(current);
+      // Staggered by index so the display order (chronological within the group)
+      // is deterministic and matches the selection order.
+      final assistantTime = now.add(Duration(microseconds: 1 + i));
+      final assistantMessageId = generateId('msg');
+      final assistantBlockId = generateId('block');
+      final assistantMessage = Message(
+        id: assistantMessageId,
+        role: MessageRole.assistant,
+        assistantId: _assistantId,
+        topicId: topicId,
+        createdAt: assistantTime,
+        status: MessageStatus.streaming,
+        model: effective,
+        askId: userMessageId,
+        siblingsGroupId: siblingsGroupId,
+        multiModelMessageStyle: defaultStyle,
+        foldSelected: i == 0,
+        blocks: <String>[assistantBlockId],
+      );
+      await _repo.saveMessage(assistantMessage);
+      await _repo.saveMessageBlock(
+        MessageBlock.mainText(
+          id: assistantBlockId,
+          messageId: assistantMessageId,
+          status: MessageBlockStatus.streaming,
+          createdAt: assistantTime,
+          content: '',
+        ),
+      );
+      final assistantView = ChatMessageView(
+        id: assistantMessageId,
+        role: MessageRole.assistant,
+        status: MessageStatus.streaming,
+        createdAt: assistantTime,
+        modelName: effective.name,
+        providerName: current.provider.name,
+        askId: userMessageId,
+        siblingsGroupId: siblingsGroupId,
+        foldSelected: i == 0,
+      );
+      assistantViews.add(assistantView);
+      siblings.add((
+        current: current,
+        effective: effective,
+        assistantMessageId: assistantMessageId,
+        assistantBlockId: assistantBlockId,
+        assistantTime: assistantTime,
+        assistantView: assistantView,
+      ));
+    }
+
+    final views = <ChatMessageView>[
+      ...snapshot.messages,
+      userView,
+      ...assistantViews,
+    ];
+    _emitTurn(topicId, views, streaming: true);
+
+    // 4. Shared request context: the history up to and including the user turn.
+    //    The sibling placeholders are excluded so every model answers the same
+    //    conversation independently.
+    final mcp = await _mcpSetup();
+    final ctx = _contextSettings();
+    final params = _parameterFields();
+    final regexRules = await _sendingRegexRules();
+    final baseViews = <ChatMessageView>[...snapshot.messages, userView];
+    final contextViews = _trimViews(baseViews, ctx.contextCount);
+    final memInjection = await collectChatMemoryInjection(
+      ref,
+      assistantId: _assistantId,
+      query: trimmed,
+    );
+
+    // 5. Stream every sibling in parallel; each keeps the turn alive
+    //    (finalizeTurn: false) so the others stay visible until all settle.
+    await Future.wait(<Future<void>>[
+      for (final sibling in siblings)
+        () async {
+          final effective = sibling.effective;
+          final provider = sibling.current.provider;
+          final messages = await _buildLlmMessages(
+            contextViews,
+            chatModel: effective,
+            regexRules: regexRules,
+          );
+          final request = LlmChatRequest(
+            model: effective,
+            system: _systemFor(
+              mcp,
+              await _buildSystemPromptWith(
+                memInjection.section,
+                modelName: effective.name,
+                modelId: effective.id,
+                providerName: provider.name,
+              ),
+            ),
+            messages: messages,
+            maxTokens: ctx.maxTokens,
+            temperature: params.temperature,
+            topP: params.topP,
+            topK: params.topK,
+            frequencyPenalty: params.frequencyPenalty,
+            presencePenalty: params.presencePenalty,
+            seed: params.seed,
+            stopSequences: params.stopSequences,
+            responseFormat: params.responseFormat,
+            parallelToolCalls: params.parallelToolCalls,
+            logprobs: params.logprobs,
+            user: params.user,
+            reasoningEffort: params.reasoningEffort,
+            thinkingBudget: params.thinkingBudget,
+            includeThoughts: params.includeThoughts,
+            cacheControl: params.cacheControl,
+            structuredOutputMode: params.structuredOutputMode,
+            webSearchEnabled: params.webSearchEnabled,
+            codeExecutionEnabled: params.codeExecutionEnabled,
+            useSearchGrounding: params.useSearchGrounding,
+            safetyLevel: params.safetyLevel,
+            stream: params.streamOutput,
+            customParameters: params.customParameters,
+            tools: mcp.useFunctionTools ? mcp.tools : null,
+            useResponsesAPI: provider.useResponsesAPI ?? false,
+            extraHeaders: effective.providerExtraHeaders,
+            extraBody: effective.providerExtraBody,
+          );
+          await _streamInto(
+            request: request,
+            effective: effective,
+            provider: provider,
+            turnTopicId: topicId,
+            assistantMessageId: sibling.assistantMessageId,
+            assistantBlockId: sibling.assistantBlockId,
+            assistantTime: sibling.assistantTime,
+            views: views,
+            assistantView: sibling.assistantView,
+            mcp: mcp,
+            leadingBlocks: _memoryInjectionBlocks(
+              messageId: sibling.assistantMessageId,
+              createdAt: sibling.assistantTime,
+              injection: memInjection,
+            ),
+            finalizeTurn: false,
+          );
+        }(),
+    ]);
+
+    // 6. Whole turn done: end streaming and run the once-per-turn side effects.
+    _emitTurn(topicId, views, streaming: false);
+    unawaited(_refreshTopicPreview(topicId));
+    unawaited(_generateTitle(topicId));
+    unawaited(_maybeGenerateSuggestions(topicId, List.of(views)));
+    unawaited(_maybeExtractMemory(topicId));
+  }
+
+  /// The next free sibling-group id for [topicId]: one past the largest existing
+  /// `siblingsGroupId`, so a fresh multi-model group never collides with prior
+  /// groups in the same topic.
+  Future<int> _nextSiblingsGroupId(String topicId) async {
+    final messages = await _repo.getMessagesByTopicId(topicId);
+    var max = 0;
+    for (final m in messages) {
+      if (m.siblingsGroupId > max) max = m.siblingsGroupId;
+    }
+    return max + 1;
+  }
+
+  /// Selects sibling [messageId] as the one the conversation continues from:
+  /// moves the topic's active leaf onto it and marks it `foldSelected` (clearing
+  /// the flag on its group peers). The next user message will hang off it. A
+  /// no-op while streaming or when the message isn't a grouped sibling.
+  Future<void> selectSibling(String messageId) async {
+    final snapshot = state.value;
+    if (snapshot == null || snapshot.isStreaming) return;
+    final topicId = _topicId;
+    if (topicId == null) return;
+    final message = await _repo.getMessage(messageId);
+    if (message == null || message.siblingsGroupId <= 0) return;
+    if (message.foldSelected == true) return;
+
+    // Flip foldSelected within the group, then move the active leaf.
+    final all = await _repo.getMessagesByTopicId(topicId);
+    for (final m in all) {
+      if (m.parentId == message.parentId &&
+          m.siblingsGroupId == message.siblingsGroupId) {
+        final selected = m.id == messageId;
+        if ((m.foldSelected ?? false) != selected) {
+          await _repo.saveMessage(m.copyWith(foldSelected: selected));
+        }
+      }
+    }
+    await _repo.setActiveNode(topicId, messageId);
+    ref.read(chatRefreshProvider.notifier).bump();
   }
 
   /// Sends a user message and streams the combo (sequential) response.
@@ -1238,7 +1537,18 @@ class ChatController extends _$ChatController {
     required ChatMessageView assistantView,
     required _McpSetup mcp,
     List<MessageBlock> leadingBlocks = const <MessageBlock>[],
+    // When false this stream is one sibling of a multi-model turn: it persists
+    // its own message and updates its own view but does NOT end the topic's
+    // streaming state or run the once-per-turn side effects (title / 建议模型 /
+    // preview / memory) — the coordinator does that after all siblings settle.
+    bool finalizeTurn = true,
   }) async {
+    // Terminal emit at the end of *this* stream. For a single-model turn it ends
+    // the topic's streaming state (streaming:false → registry.finish); for a
+    // multi-model sibling it keeps the turn alive (streaming:true) so the other
+    // siblings stay visible until the coordinator finishes.
+    void emitTurnEnd() =>
+        _emitTurn(turnTopicId, views, streaming: !finalizeTurn);
     // Multi-key load balancing + failover. When the provider carries a multi-key
     // pool, each attempt strategy-selects a usable key ([ApiKeyManager]); a
     // connection-time failure (before anything streamed) fails over to the next
@@ -1405,8 +1715,8 @@ class ChatController extends _$ChatController {
       await persistKeyUpdates();
       view = await _reloadView(assistantMessageId, view);
       _replace(views, view);
-      _emitTurn(turnTopicId, views, streaming: false);
-      unawaited(_refreshTopicPreview(turnTopicId));
+      emitTurnEnd();
+      if (finalizeTurn) unawaited(_refreshTopicPreview(turnTopicId));
     }
 
     final cancelToken = LlmCancelToken();
@@ -1791,12 +2101,14 @@ class ChatController extends _$ChatController {
         await persistKeyUpdates();
         view = await _reloadView(assistantMessageId, view);
         _replace(views, view);
-        _emitTurn(turnTopicId, views, streaming: false);
-        unawaited(_refreshTopicPreview(turnTopicId));
-        unawaited(_generateTitle(turnTopicId));
-        unawaited(_maybeGenerateSuggestions(turnTopicId, List.of(views)));
-        // 自动提取本轮的长期记忆 —— best-effort, off the turn's critical path.
-        unawaited(_maybeExtractMemory(turnTopicId));
+        emitTurnEnd();
+        if (finalizeTurn) {
+          unawaited(_refreshTopicPreview(turnTopicId));
+          unawaited(_generateTitle(turnTopicId));
+          unawaited(_maybeGenerateSuggestions(turnTopicId, List.of(views)));
+          // 自动提取本轮的长期记忆 —— best-effort, off the turn's critical path.
+          unawaited(_maybeExtractMemory(turnTopicId));
+        }
         return;
       } on Object catch (error) {
         // User pressed Stop: cancelling the token aborts the HTTP request, which
@@ -1870,8 +2182,8 @@ class ChatController extends _$ChatController {
       view.copyWith(status: MessageStatus.error, errorText: messageText),
     );
     _replace(views, view);
-    _emitTurn(turnTopicId, views, streaming: false);
-    unawaited(_refreshTopicPreview(turnTopicId));
+    emitTurnEnd();
+    if (finalizeTurn) unawaited(_refreshTopicPreview(turnTopicId));
   }
 
   /// Exponential-ish backoff between multi-key failover attempts, mirroring the
@@ -3720,6 +4032,9 @@ class ChatController extends _$ChatController {
       createdAt: message.createdAt,
       modelName: model?.name,
       providerName: providerName,
+      askId: message.askId,
+      siblingsGroupId: message.siblingsGroupId,
+      foldSelected: message.foldSelected ?? false,
       versions: message.versions ?? const <MessageVersion>[],
       currentVersionId: message.currentVersionId,
       usage: message.usage,

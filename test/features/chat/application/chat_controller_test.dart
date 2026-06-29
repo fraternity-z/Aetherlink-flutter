@@ -8,6 +8,7 @@ import 'package:aetherlink_flutter/app/di/model_access.dart';
 import 'package:aetherlink_flutter/core/database/app_database.dart';
 import 'package:aetherlink_flutter/features/chat/application/chat_controller.dart';
 import 'package:aetherlink_flutter/features/chat/application/chat_providers.dart';
+import 'package:aetherlink_flutter/features/chat/application/multi_model_mentions_controller.dart';
 import 'package:aetherlink_flutter/features/chat/domain/entities/composer_attachment.dart';
 import 'package:aetherlink_flutter/features/chat/domain/entities/message_block.dart';
 import 'package:aetherlink_flutter/features/chat/domain/entities/message_role.dart';
@@ -450,4 +451,151 @@ void main() {
       expect(blocks.whereType<ErrorBlock>(), isNotEmpty);
     },
   );
+
+  // A second model under the same provider, for multi-model fan-out tests.
+  CurrentModel modelB() => const CurrentModel(
+    provider: ModelProvider(
+      id: 'p1',
+      name: 'Test',
+      avatar: 'T',
+      color: '#000000',
+      apiKey: 'sk-test',
+      baseUrl: 'https://example.test',
+      providerType: 'openai',
+    ),
+    model: Model(id: 'gpt-test-2', name: 'GPT Test 2', provider: 'Test'),
+  );
+
+  test(
+    'sendMultiModel builds one sibling group and streams every model',
+    () async {
+      final gateway = _FakeGateway(const [
+        LlmStreamChunk.textDelta('Hello'),
+        LlmStreamChunk.textDelta(' world'),
+        LlmStreamChunk.done(),
+      ]);
+      final container = _container(
+        gateway: gateway,
+        repo: repo,
+        current: _currentModel(),
+      );
+
+      await container.read(chatControllerProvider.future);
+      await container
+          .read(chatControllerProvider.notifier)
+          .sendMultiModel('hi', [_currentModel(), modelB()]);
+
+      final state = container.read(chatControllerProvider).requireValue;
+      expect(state.isStreaming, isFalse);
+
+      // View: user turn + two assistant siblings, both finalized.
+      expect(state.messages, hasLength(3));
+      expect(state.messages.first.role, MessageRole.user);
+      final assistants = state.messages
+          .where((m) => m.role == MessageRole.assistant)
+          .toList();
+      expect(assistants, hasLength(2));
+      for (final a in assistants) {
+        expect(a.status, MessageStatus.success);
+        expect(a.text, 'Hello world');
+        expect(a.siblingsGroupId, greaterThan(0));
+      }
+      // The two siblings share one group id and the first is the selected one.
+      expect(
+        assistants[0].siblingsGroupId,
+        assistants[1].siblingsGroupId,
+      );
+      expect(assistants[0].foldSelected, isTrue);
+      expect(assistants[1].foldSelected, isFalse);
+      expect(assistants.map((a) => a.modelName), ['GPT Test', 'GPT Test 2']);
+
+      // Persistence: user message records the mentions; both siblings share its
+      // askId and the topic's active leaf is the first sibling.
+      final topics = await repo.getRecentTopics();
+      final topic = topics.single;
+      final messages = await repo.getMessagesByTopicId(topic.id);
+      expect(messages, hasLength(3));
+      final userMsg = messages.firstWhere((m) => m.role == MessageRole.user);
+      expect(userMsg.mentions, hasLength(2));
+      final siblings = messages
+          .where((m) => m.role == MessageRole.assistant)
+          .toList();
+      for (final s in siblings) {
+        expect(s.askId, userMsg.id);
+        expect(s.parentId, userMsg.id);
+        expect(s.siblingsGroupId, greaterThan(0));
+      }
+      final reloaded = await repo.getTopic(topic.id);
+      expect(reloaded!.activeNodeId, assistants.first.id);
+
+      // The display projection inlines the whole group after the user message.
+      final branch = await repo.getBranchMessages(topic.id);
+      expect(branch.map((m) => m.role), [
+        MessageRole.user,
+        MessageRole.assistant,
+        MessageRole.assistant,
+      ]);
+    },
+  );
+
+  test('send routes to multi-model when mentions are staged', () async {
+    final gateway = _FakeGateway(const [
+      LlmStreamChunk.textDelta('Hi'),
+      LlmStreamChunk.done(),
+    ]);
+    final container = _container(
+      gateway: gateway,
+      repo: repo,
+      current: _currentModel(),
+    );
+
+    await container.read(chatControllerProvider.future);
+    container
+        .read(multiModelMentionsProvider.notifier)
+        .set([_currentModel(), modelB()]);
+    await container.read(chatControllerProvider.notifier).send('hello');
+
+    final state = container.read(chatControllerProvider).requireValue;
+    expect(state.messages, hasLength(3)); // user + 2 siblings
+    expect(
+      state.messages.where((m) => m.role == MessageRole.assistant),
+      hasLength(2),
+    );
+    // The one-shot mentions are consumed after sending.
+    expect(container.read(multiModelMentionsProvider), isEmpty);
+  });
+
+  test('selectSibling moves the active leaf and fold flag', () async {
+    final gateway = _FakeGateway(const [
+      LlmStreamChunk.textDelta('Hi'),
+      LlmStreamChunk.done(),
+    ]);
+    final container = _container(
+      gateway: gateway,
+      repo: repo,
+      current: _currentModel(),
+    );
+
+    await container.read(chatControllerProvider.future);
+    await container
+        .read(chatControllerProvider.notifier)
+        .sendMultiModel('hi', [_currentModel(), modelB()]);
+
+    final topic = (await repo.getRecentTopics()).single;
+    var messages = await repo.getMessagesByTopicId(topic.id);
+    final second = messages.firstWhere((m) => m.model?.id == 'gpt-test-2');
+    expect(second.foldSelected ?? false, isFalse);
+
+    await container.read(chatControllerProvider.notifier).selectSibling(second.id);
+
+    final reloaded = await repo.getTopic(topic.id);
+    expect(reloaded!.activeNodeId, second.id);
+    messages = await repo.getMessagesByTopicId(topic.id);
+    final first = messages.firstWhere((m) => m.model?.id == 'gpt-test');
+    expect(
+      messages.firstWhere((m) => m.id == second.id).foldSelected,
+      isTrue,
+    );
+    expect(first.foldSelected, isFalse);
+  });
 }

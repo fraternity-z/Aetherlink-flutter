@@ -42,7 +42,11 @@ class StreamingRegistryState {
 /// rebuild path) so a topic's stream can be aborted independently.
 @Riverpod(keepAlive: true)
 class StreamingRegistry extends _$StreamingRegistry {
-  final Map<String, LlmCancelToken> _tokens = <String, LlmCancelToken>{};
+  // A topic may have more than one in-flight request at once (multi-model send
+  // streams N siblings into the same topic in parallel), so each topic keeps a
+  // *list* of cancel tokens; [cancel] aborts them all.
+  final Map<String, List<LlmCancelToken>> _tokens =
+      <String, List<LlmCancelToken>>{};
 
   @override
   StreamingRegistryState build() => const StreamingRegistryState();
@@ -68,16 +72,18 @@ class StreamingRegistry extends _$StreamingRegistry {
     if (next.isEmpty) unawaited(StreamingKeepAliveService.end());
   }
 
-  /// Binds the cancellation handle for [topicId]'s in-flight request so
-  /// [cancel] can abort it.
+  /// Binds a cancellation handle for an in-flight request on [topicId] so
+  /// [cancel] can abort it. Multi-model turns bind one token per sibling.
   void bindToken(String topicId, LlmCancelToken token) {
-    _tokens[topicId] = token;
+    (_tokens[topicId] ??= <LlmCancelToken>[]).add(token);
   }
 
-  /// Aborts [topicId]'s in-flight request, if any.
+  /// Aborts every in-flight request on [topicId] (all parallel siblings).
   void cancel(String topicId) {
-    final token = _tokens[topicId];
-    if (token == null || token.isCancelled) return;
-    token.cancel();
+    final tokens = _tokens[topicId];
+    if (tokens == null) return;
+    for (final token in tokens) {
+      if (!token.isCancelled) token.cancel();
+    }
   }
 }

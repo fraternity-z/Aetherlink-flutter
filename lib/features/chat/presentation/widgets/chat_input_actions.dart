@@ -9,8 +9,10 @@ import 'package:aetherlink_flutter/features/chat/application/composer_attachment
 import 'package:aetherlink_flutter/features/chat/application/composer_attachments_controller.dart';
 import 'package:aetherlink_flutter/features/chat/application/input_modes_controller.dart';
 import 'package:aetherlink_flutter/features/chat/application/mcp_tools_controller.dart';
+import 'package:aetherlink_flutter/features/chat/application/multi_model_mentions_controller.dart';
 import 'package:aetherlink_flutter/features/chat/application/sidebar_controllers.dart';
 import 'package:aetherlink_flutter/features/chat/presentation/widgets/mcp_quick_panel_dialog.dart';
+import 'package:aetherlink_flutter/features/chat/presentation/widgets/multi_model_selector_sheet.dart';
 import 'package:aetherlink_flutter/features/chat/presentation/widgets/quick_phrase_sheet.dart';
 import 'package:aetherlink_flutter/features/chat/presentation/widgets/reasoning_effort_picker.dart';
 import 'package:aetherlink_flutter/shared/domain/input_box_settings.dart';
@@ -112,11 +114,25 @@ class ChatInputActions implements InputBoxActions {
         showReasoningEffortPicker(context, _ref);
       case InputBoxAction.note:
         _attachNote(context);
+      case InputBoxAction.multiModel:
+        _openMultiModelSelector(context);
       case InputBoxAction.knowledge:
       case InputBoxAction.aiDebate:
-      case InputBoxAction.multiModel:
         _comingSoon(context);
     }
+  }
+
+  /// Opens the 多模型发送 multi-select sheet and stages the chosen models as
+  /// mentions (chips above the composer); the next send fans out to them all.
+  /// Confirming with an empty selection clears any staged mentions.
+  Future<void> _openMultiModelSelector(BuildContext context) async {
+    final notifier = _ref.read(multiModelMentionsProvider.notifier);
+    final chosen = await showMultiModelSelectorSheet(
+      context,
+      initial: _ref.read(multiModelMentionsProvider),
+    );
+    if (chosen == null) return;
+    notifier.set(chosen);
   }
 
   void _toggle(InputMode mode) =>

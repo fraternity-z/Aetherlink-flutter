@@ -13,6 +13,7 @@ import 'package:aetherlink_flutter/features/chat/application/chat_controller.dar
 import 'package:aetherlink_flutter/features/chat/application/composer_attachments_controller.dart';
 import 'package:aetherlink_flutter/features/chat/application/input_modes_controller.dart';
 import 'package:aetherlink_flutter/features/chat/application/mcp_tools_controller.dart';
+import 'package:aetherlink_flutter/features/chat/application/multi_model_mentions_controller.dart';
 import 'package:aetherlink_flutter/features/chat/application/long_text_paste.dart';
 import 'package:aetherlink_flutter/features/chat/application/sidebar_settings_controller.dart';
 import 'package:aetherlink_flutter/features/chat/domain/entities/composer_attachment.dart';
@@ -293,17 +294,90 @@ class _ChatInputBarState extends ConsumerState<ChatInputBar> {
           : null,
     );
 
-    if (suggestions.isEmpty) return composer;
+    // Staged 多模型发送 mentions show as chips above the composer; the next send
+    // fans out to them. Editable (✕ per chip) and cleared after sending.
+    final mentions = ref.watch(multiModelMentionsProvider);
+
+    if (suggestions.isEmpty && mentions.isEmpty) return composer;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _SuggestionBubbles(
-          suggestions: suggestions,
-          onTap: _sendSuggestion,
-          onLongPress: _insertPhrase,
-        ),
+        if (suggestions.isNotEmpty)
+          _SuggestionBubbles(
+            suggestions: suggestions,
+            onTap: _sendSuggestion,
+            onLongPress: _insertPhrase,
+          ),
+        if (mentions.isNotEmpty)
+          _MentionChips(
+            mentions: mentions,
+            onRemove: (providerId, modelId) => ref
+                .read(multiModelMentionsProvider.notifier)
+                .remove(providerId, modelId),
+            onClear: () =>
+                ref.read(multiModelMentionsProvider.notifier).clear(),
+          ),
         composer,
       ],
+    );
+  }
+}
+
+/// The staged 多模型发送 mentions shown above the composer: one chip per chosen
+/// model (✕ to drop it), plus a 清空 action. The next send fans the turn out to
+/// these models and clears the row.
+class _MentionChips extends StatelessWidget {
+  const _MentionChips({
+    required this.mentions,
+    required this.onRemove,
+    required this.onClear,
+  });
+
+  final List<CurrentModel> mentions;
+  final void Function(String providerId, String modelId) onRemove;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+      child: Row(
+        children: [
+          Icon(
+            Icons.compare_arrows,
+            size: 16,
+            color: theme.colorScheme.primary,
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final m in mentions)
+                  InputChip(
+                    label: Text(
+                      m.model.name,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                    visualDensity: VisualDensity.compact,
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    onDeleted: () => onRemove(m.provider.id, m.model.id),
+                  ),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: onClear,
+            style: TextButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+            ),
+            child: const Text('清空'),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -13,9 +13,11 @@ import 'package:aetherlink_flutter/features/chat/application/sidebar_controllers
 import 'package:aetherlink_flutter/features/chat/application/sidebar_settings_controller.dart';
 import 'package:aetherlink_flutter/features/chat/presentation/controllers/chat_auto_scroll_controller.dart';
 import 'package:aetherlink_flutter/features/chat/presentation/widgets/chat_input_bar.dart';
+import 'package:aetherlink_flutter/features/chat/domain/entities/message_role.dart';
 import 'package:aetherlink_flutter/features/chat/domain/entities/sidebar_settings.dart';
 import 'package:aetherlink_flutter/features/chat/presentation/widgets/chat_message_bubble.dart';
 import 'package:aetherlink_flutter/features/chat/presentation/widgets/message_selection_bar.dart';
+import 'package:aetherlink_flutter/features/chat/presentation/widgets/multi_model_message_group.dart';
 import 'package:aetherlink_flutter/features/chat/presentation/widgets/plain_style_message.dart';
 import 'package:aetherlink_flutter/features/chat/presentation/widgets/sidebar/chat_sidebar.dart';
 import 'package:aetherlink_flutter/features/chat/presentation/widgets/chat_top_bar.dart';
@@ -554,9 +556,11 @@ class _MessageList extends ConsumerWidget {
         showSystemPromptBubble: showSystemPromptBubble && !isSelecting,
       );
     }
-    final ids = orderKey.split('\u0000');
+    final rows = <List<String>>[
+      for (final row in orderKey.split('\u0000')) row.split(','),
+    ];
     return _MessageListView(
-      ids,
+      rows,
       showSystemPromptBubble: showSystemPromptBubble && !isSelecting,
       bottomReserve: bottomReserve,
       isSelecting: isSelecting,
@@ -564,18 +568,43 @@ class _MessageList extends ConsumerWidget {
   }
 }
 
-/// Joins the current conversation's message ids into a single string so
-/// Riverpod's `select` dedup short-circuits in-place content updates (streaming)
-/// — the key changes only when the set/order of messages changes.
+/// Encodes the conversation's render *rows* into a single string so Riverpod's
+/// `select` dedup short-circuits in-place content updates (streaming) — the key
+/// changes only when the set/order/grouping of messages changes.
+///
+/// Rows are separated by `\u0000`; a row's member ids by `,`. Consecutive
+/// assistant siblings sharing one `siblingsGroupId (>0)` and `askId` collapse
+/// into a single multi-member row (the 对比 group); every other message is its
+/// own single-member row.
 String _messageOrderKey(AsyncValue<ChatState> async) {
   final messages = async.value?.messages;
   if (messages == null || messages.isEmpty) return '';
-  final buffer = StringBuffer();
-  for (var i = 0; i < messages.length; i++) {
-    if (i > 0) buffer.write('\u0000');
-    buffer.write(messages[i].id);
+  final rows = <String>[];
+  var i = 0;
+  while (i < messages.length) {
+    final m = messages[i];
+    if (m.role == MessageRole.assistant &&
+        m.siblingsGroupId > 0 &&
+        m.askId != null) {
+      final members = <String>[];
+      while (i < messages.length) {
+        final n = messages[i];
+        if (n.role == MessageRole.assistant &&
+            n.siblingsGroupId == m.siblingsGroupId &&
+            n.askId == m.askId) {
+          members.add(n.id);
+          i++;
+        } else {
+          break;
+        }
+      }
+      rows.add(members.join(','));
+    } else {
+      rows.add(m.id);
+      i++;
+    }
   }
-  return buffer.toString();
+  return rows.join('\u0000');
 }
 
 /// Empty-state placeholder shown when the current topic has no messages (the
@@ -650,16 +679,17 @@ class _ErrorNotice extends StatelessWidget {
 /// [ChatAutoFollowScrollController] follows it during layout when sticking.
 class _MessageListView extends ConsumerStatefulWidget {
   const _MessageListView(
-    this.messageIds, {
+    this.rows, {
     this.showSystemPromptBubble = false,
     this.bottomReserve = 0,
     this.isSelecting = false,
   });
 
-  /// Ordered message ids of the current conversation. Each bubble watches its
-  /// own [ChatMessageView] by id, so streaming content rebuilds only that
+  /// Render rows of the current conversation: a single-element row is one
+  /// message, a multi-element row is a multi-model 对比 group. Each bubble watches
+  /// its own [ChatMessageView] by id, so streaming content rebuilds only that
   /// bubble — never this whole list.
-  final List<String> messageIds;
+  final List<List<String>> rows;
 
   /// Renders the system-prompt bubble as the first (scrolling) list item, like
   /// the web original, instead of pinning it above the list.
@@ -682,9 +712,14 @@ class _MessageListViewState extends ConsumerState<_MessageListView> {
   late final ChatAutoScrollController _autoScroll;
 
   /// Identifies the loaded conversation so a topic switch (first-message change)
-  /// can be told apart from appends / in-place content growth.
+  /// can be told apart from appends / in-place content growth. Tracked over the
+  /// flattened message ids so multi-model groups don't confuse the heuristic.
   String? _firstId;
   int _count = 0;
+
+  /// Every message id in display order (groups flattened) — for the autoscroll
+  /// heuristic and mini-map scroll-to-message lookups.
+  List<String> get _flatIds => [for (final row in widget.rows) ...row];
 
   @override
   void initState() {
@@ -696,8 +731,9 @@ class _MessageListViewState extends ConsumerState<_MessageListView> {
       isEnabled: () =>
           ref.read(sidebarSettingsControllerProvider).autoScrollToBottom,
     );
-    _firstId = widget.messageIds.isEmpty ? null : widget.messageIds.first;
-    _count = widget.messageIds.length;
+    final ids = _flatIds;
+    _firstId = ids.isEmpty ? null : ids.first;
+    _count = ids.length;
     // Initial entry pins to the bottom (latest message), like the web's mount.
     _autoScroll.pinToBottom();
   }
@@ -705,9 +741,9 @@ class _MessageListViewState extends ConsumerState<_MessageListView> {
   @override
   void didUpdateWidget(covariant _MessageListView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final messageIds = widget.messageIds;
-    final firstId = messageIds.isEmpty ? null : messageIds.first;
-    final count = messageIds.length;
+    final ids = _flatIds;
+    final firstId = ids.isEmpty ? null : ids.first;
+    final count = ids.length;
     final topicSwitched = firstId != _firstId;
     final appended = !topicSwitched && count > _count;
     _firstId = firstId;
@@ -727,8 +763,15 @@ class _MessageListViewState extends ConsumerState<_MessageListView> {
 
   @override
   Widget build(BuildContext context) {
-    final messageIds = widget.messageIds;
     final isSelecting = widget.isSelecting;
+    // Multi-select shows every message individually so each can be ticked; the
+    // 对比 grouping only applies to the normal (read) view.
+    final rows = isSelecting
+        ? <List<String>>[
+            for (final row in widget.rows)
+              for (final id in row) <String>[id],
+          ]
+        : widget.rows;
     final headerCount = widget.showSystemPromptBubble ? 1 : 0;
     final selectedIds = isSelecting
         ? ref.watch(messageSelectionProvider.select((s) => s.selectedIds))
@@ -738,7 +781,7 @@ class _MessageListViewState extends ConsumerState<_MessageListView> {
     ref.listen<String?>(scrollToMessageIdProvider, (prev, messageId) {
       if (messageId == null) return;
       ref.read(scrollToMessageIdProvider.notifier).clear();
-      final index = messageIds.indexOf(messageId);
+      final index = rows.indexWhere((row) => row.contains(messageId));
       if (index < 0) return;
       _autoScroll.unstick();
       _observerController.animateTo(
@@ -763,34 +806,44 @@ class _MessageListViewState extends ConsumerState<_MessageListView> {
       child: ListView.builder(
         controller: _scrollController,
         padding: EdgeInsets.fromLTRB(0, 8, 0, 8 + widget.bottomReserve),
-        itemCount: messageIds.length + headerCount,
+        itemCount: rows.length + headerCount,
         itemBuilder: (context, index) {
           // The system-prompt bubble is the first item when enabled; it scrolls
           // with the list and is never part of multi-select.
           if (headerCount == 1 && index == 0) {
             return const SystemPromptBubble();
           }
-          final messageIndex = index - headerCount;
-          final id = messageIds[messageIndex];
-          // Stable per-message key so Flutter's element diff reuses the existing
-          // bubble across appends/reorders instead of rebuilding list sections.
-          final Widget bubble = isPlain
-              ? PlainStyleMessage(key: ValueKey(id), messageId: id)
-              : ChatMessageBubble(key: ValueKey(id), messageId: id);
-
-          // Wrap with selection checkbox when in multi-select mode.
-          final Widget item = isSelecting
-              ? _SelectableMessageRow(
-                  messageId: id,
-                  selected: selectedIds.contains(id),
-                  child: bubble,
-                )
-              : bubble;
+          final rowIndex = index - headerCount;
+          final row = rows[rowIndex];
+          // A multi-member row is a multi-model 对比 group; a single-member row is
+          // an ordinary message.
+          final Widget item;
+          if (row.length > 1) {
+            item = MultiModelMessageGroup(
+              key: ValueKey('group:${row.join(',')}'),
+              memberIds: row,
+            );
+          } else {
+            final id = row.first;
+            // Stable per-message key so Flutter's element diff reuses the
+            // existing bubble across appends/reorders.
+            final Widget bubble = isPlain
+                ? PlainStyleMessage(key: ValueKey(id), messageId: id)
+                : ChatMessageBubble(key: ValueKey(id), messageId: id);
+            // Wrap with selection checkbox when in multi-select mode.
+            item = isSelecting
+                ? _SelectableMessageRow(
+                    messageId: id,
+                    selected: selectedIds.contains(id),
+                    child: bubble,
+                  )
+                : bubble;
+          }
 
           // Plain style uses its own bottom border; bubble style uses a Divider
           // when the setting is on.
           final needsDivider =
-              isPlain || (showDivider && messageIndex < messageIds.length - 1);
+              isPlain || (showDivider && rowIndex < rows.length - 1);
           if (!needsDivider) return item;
           final dividerColor = Theme.of(context).brightness == Brightness.dark
               ? const Color(0x1AFFFFFF)

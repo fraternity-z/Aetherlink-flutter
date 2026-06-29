@@ -34,6 +34,13 @@ abstract class ChatMessageView with _$ChatMessageView {
     DateTime? createdAt,
     String? modelName,
     String? providerName,
+    // 多模型对比分组：[askId] 指向被回答的用户消息，[siblingsGroupId]>0 表示该助手
+    // 消息属于同一父下的多模型兄弟组。消息列表据此把连续的同组兄弟摞进对比控件。
+    String? askId,
+    @Default(0) int siblingsGroupId,
+    /// Whether this is the chosen sibling of its multi-model group (the one the
+    /// conversation continues from). Drives the 对比 group's selected highlight.
+    @Default(false) bool foldSelected,
     @Default(<MessageVersion>[]) List<MessageVersion> versions,
     String? currentVersionId,
     Usage? usage,
