@@ -78,11 +78,9 @@ class _BranchManagerSheetState extends ConsumerState<_BranchManagerSheet> {
 
   Future<void> _onNodeTap(BranchFlowNode node) async {
     if (!node.isActive) {
-      // Descend to this branch's deepest leaf so the whole path shows, rather
-      // than truncating the topic at the tapped node (Cherry's switchActiveBranch).
       await ref
           .read(chatControllerProvider.notifier)
-          .switchActiveBranch(node.message.id);
+          .switchToBranch(node.message.id);
     }
     if (mounted) Navigator.of(context).maybePop();
   }
