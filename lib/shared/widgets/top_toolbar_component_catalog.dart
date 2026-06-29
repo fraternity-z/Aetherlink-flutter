@@ -75,6 +75,36 @@ Widget topToolbarComponentIcon(
   ),
 };
 
+/// The display name of a 聚合按钮 glyph option, shown in the group editor's icon
+/// picker.
+String topToolbarGroupIconName(TopToolbarGroupIcon icon) => switch (icon) {
+  TopToolbarGroupIcon.menu => '菜单',
+  TopToolbarGroupIcon.grid => '网格',
+  TopToolbarGroupIcon.layers => '图层',
+  TopToolbarGroupIcon.more => '更多',
+  TopToolbarGroupIcon.wrench => '工具',
+  TopToolbarGroupIcon.star => '星标',
+};
+
+/// The glyph a 聚合按钮 renders with, tinted [color] (the lucide icon picked in
+/// the group editor).
+Widget topToolbarGroupIcon(
+  TopToolbarGroupIcon icon, {
+  required Color color,
+  double size = 20,
+}) => Icon(
+  switch (icon) {
+    TopToolbarGroupIcon.menu => LucideIcons.menu,
+    TopToolbarGroupIcon.grid => LucideIcons.layoutGrid,
+    TopToolbarGroupIcon.layers => LucideIcons.layers,
+    TopToolbarGroupIcon.more => LucideIcons.ellipsis,
+    TopToolbarGroupIcon.wrench => LucideIcons.wrench,
+    TopToolbarGroupIcon.star => LucideIcons.star,
+  },
+  size: size,
+  color: color,
+);
+
 /// Renders a bespoke (non-lucide) SVG glyph tinted to [color], matching the
 /// original `CustomIcon` behavior.
 Widget _svg(String asset, Color color, double size) => SvgPicture.asset(

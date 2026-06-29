@@ -2,6 +2,7 @@ import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 import 'package:aetherlink_flutter/app/di/app_settings_access.dart';
 import 'package:aetherlink_flutter/app/di/json_kv_notifier.dart';
+import 'package:aetherlink_flutter/core/utils/id_generator.dart';
 import 'package:aetherlink_flutter/features/chat/domain/repositories/chat_repository.dart';
 import 'package:aetherlink_flutter/shared/domain/top_toolbar_settings.dart';
 
@@ -100,5 +101,93 @@ class TopToolbarSettingsController extends _$TopToolbarSettingsController
   /// Sets the model selector display style (the 模型选择器显示样式 radio group).
   void setModelSelectorDisplayStyle(ModelSelectorDisplayStyle style) {
     persist(state.copyWith(modelSelectorDisplayStyle: style));
+  }
+
+  // --- 聚合按钮 (aggregate buttons) ---------------------------------------
+
+  /// Creates a new empty 聚合按钮 at ([x], [y]) and returns its generated id, so
+  /// the caller can immediately open its editor.
+  String addGroup(double x, double y) {
+    final group = TopToolbarGroup(
+      id: generateId('tbgrp'),
+      x: x.clamp(_edgePadding, 100 - _edgePadding).toDouble(),
+      y: y.clamp(0, 100).toDouble(),
+    );
+    persist(
+      state.copyWith(groups: List.unmodifiable([...state.groups, group])),
+    );
+    return group.id;
+  }
+
+  /// Moves the group [id] to ([x], [y]), clamped into the same air-wall placed
+  /// components use.
+  void moveGroup(String id, double x, double y) {
+    _updateGroup(
+      id,
+      (g) => g.copyWith(
+        x: x.clamp(_edgePadding, 100 - _edgePadding).toDouble(),
+        y: y.clamp(0, 100).toDouble(),
+      ),
+    );
+  }
+
+  /// Removes the group [id] entirely.
+  void removeGroup(String id) {
+    persist(
+      state.copyWith(
+        groups: List.unmodifiable(state.groups.where((g) => g.id != id)),
+      ),
+    );
+  }
+
+  /// Renames the group [id] (the group editor's name field).
+  void renameGroup(String id, String label) {
+    _updateGroup(id, (g) => g.copyWith(label: label));
+  }
+
+  /// Sets the group [id]'s glyph.
+  void setGroupIcon(String id, TopToolbarGroupIcon icon) {
+    _updateGroup(id, (g) => g.copyWith(icon: icon));
+  }
+
+  /// Appends [component] to the group [id]'s children (no-op if already there).
+  void addGroupChild(String id, TopToolbarComponent component) {
+    _updateGroup(id, (g) {
+      if (g.children.contains(component)) return g;
+      return g.copyWith(children: List.unmodifiable([...g.children, component]));
+    });
+  }
+
+  /// Removes [component] from the group [id]'s children.
+  void removeGroupChild(String id, TopToolbarComponent component) {
+    _updateGroup(
+      id,
+      (g) => g.copyWith(
+        children: List.unmodifiable(
+          g.children.where((c) => c != component),
+        ),
+      ),
+    );
+  }
+
+  /// Reorders the group [id]'s children, moving the child at [oldIndex] to
+  /// [newIndex] (matching `ReorderableListView.onReorderItem` semantics, where
+  /// [newIndex] is already adjusted for the removed item).
+  void reorderGroupChildren(String id, int oldIndex, int newIndex) {
+    _updateGroup(id, (g) {
+      final next = [...g.children];
+      if (oldIndex < 0 || oldIndex >= next.length) return g;
+      final moved = next.removeAt(oldIndex);
+      next.insert(newIndex.clamp(0, next.length), moved);
+      return g.copyWith(children: List.unmodifiable(next));
+    });
+  }
+
+  void _updateGroup(String id, TopToolbarGroup Function(TopToolbarGroup) f) {
+    final index = state.groups.indexWhere((g) => g.id == id);
+    if (index < 0) return;
+    final next = [...state.groups];
+    next[index] = f(next[index]);
+    persist(state.copyWith(groups: List.unmodifiable(next)));
   }
 }
