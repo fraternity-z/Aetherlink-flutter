@@ -381,7 +381,9 @@ class _DiyCard extends StatelessWidget {
               ),
               icon: const Icon(LucideIcons.settings, size: 16),
               label: const Text('矫正对齐'),
-              onPressed: settings.positions.isEmpty ? null : onAlign,
+              onPressed: settings.positions.isEmpty && settings.groups.isEmpty
+                  ? null
+                  : onAlign,
             ),
           ),
           // Model selector display style.
@@ -1083,7 +1085,11 @@ class _GroupEditorSheetState extends ConsumerState<_GroupEditorSheet> {
         16,
         0,
         16,
-        16 + MediaQuery.viewInsetsOf(context).bottom,
+        // Keep clear of the keyboard (viewInsets) AND the home-indicator /
+        // gesture bar (padding) so the bottom actions aren't clipped.
+        16 +
+            MediaQuery.viewInsetsOf(context).bottom +
+            MediaQuery.paddingOf(context).bottom,
       ),
       child: SingleChildScrollView(
         child: Column(
