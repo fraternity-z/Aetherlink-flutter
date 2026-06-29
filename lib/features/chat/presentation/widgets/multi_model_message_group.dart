@@ -147,7 +147,10 @@ class _MultiModelMessageGroupState
 
       case MultiModelMessageStyle.horizontal:
         final size = MediaQuery.of(context).size;
-        final cardWidth = (size.width - 56).clamp(260.0, 460.0);
+        // Near-full-width cards (scroll horizontally between models), so the
+        // bubble gets close to its normal width — a narrow card overflowed
+        // right because the bubble's action toolbar has a minimum width.
+        final cardWidth = (size.width - 24).clamp(300.0, 560.0);
         // Bound the viewport height so each card's inner vertical scroll has a
         // finite height (NO IntrinsicHeight — it can't measure a scroll view,
         // which was zero-sizing the content). Cards size to min(content, this).
@@ -513,7 +516,7 @@ class _MemberCell extends StatelessWidget {
           decoration: decoration(),
           clipBehavior: Clip.antiAlias,
           child: SingleChildScrollView(
-            padding: const EdgeInsets.all(6),
+            padding: const EdgeInsets.all(4),
             child: bubble,
           ),
         );
@@ -526,9 +529,11 @@ class _MemberCell extends StatelessWidget {
             height: 300,
             decoration: decoration(),
             clipBehavior: Clip.antiAlias,
-            child: Padding(
-              padding: const EdgeInsets.all(6),
-              child: Align(alignment: Alignment.topLeft, child: bubble),
+            // Scrollable preview (mirrors the web grid card's overflowY:auto):
+            // the bubble can exceed 300px without overflowing; tap opens it full.
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(4),
+              child: bubble,
             ),
           ),
         );
