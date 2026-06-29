@@ -21,11 +21,13 @@ class BranchFlowCanvas extends StatefulWidget {
     required this.layout,
     required this.previews,
     required this.onNodeTap,
+    this.onNodeLongPress,
   });
 
   final BranchFlowLayout layout;
   final Map<String, String> previews;
   final void Function(BranchFlowNode node) onNodeTap;
+  final void Function(BranchFlowNode node)? onNodeLongPress;
 
   @override
   State<BranchFlowCanvas> createState() => _BranchFlowCanvasState();
@@ -163,6 +165,9 @@ class _BranchFlowCanvasState extends State<BranchFlowCanvas> {
                               placed: p,
                               preview: widget.previews[p.node.id] ?? '',
                               onTap: () => widget.onNodeTap(p.node),
+                              onLongPress: widget.onNodeLongPress == null
+                                  ? null
+                                  : () => widget.onNodeLongPress!(p.node),
                             ),
                           ),
                       ],
@@ -291,11 +296,13 @@ class _NodeCard extends StatelessWidget {
     required this.placed,
     required this.preview,
     required this.onTap,
+    this.onLongPress,
   });
 
   final BranchFlowPlacedNode placed;
   final String preview;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -321,6 +328,7 @@ class _NodeCard extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
+          onLongPress: onLongPress,
           child: Container(
             padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
             decoration: BoxDecoration(
