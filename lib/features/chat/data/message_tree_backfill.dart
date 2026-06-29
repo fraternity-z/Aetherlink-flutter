@@ -33,6 +33,71 @@ Future<void> backfillMessageTree(AppDatabase db) async {
   }
 }
 
+/// PR (v8→v9): repairs the tree so the single-root partial-unique index can be
+/// created safely. For each topic it collapses any stray extra virtual roots to
+/// one and re-attaches every content message whose `parentId` is still NULL
+/// (legacy rows written by the pre-tree path), recomputing the whole topic's
+/// tree via [buildMessageTree] when stragglers exist. Idempotent and
+/// non-destructive (only sets fields / removes duplicate content-less roots).
+Future<void> repairMessageTree(AppDatabase db) async {
+  final topics = await db.topicDao.getAll();
+  for (final topic in topics) {
+    final roots = await db.messageDao.getRootsByTopicId(topic.id);
+    final messages = await db.messageDao.getByTopicId(topic.id)
+      ..sort(compareMessagesChronologically);
+
+    // Topic has neither root nor content → nothing to repair (no first send yet).
+    if (roots.isEmpty && messages.isEmpty) continue;
+
+    // Ensure exactly one virtual root; drop any content-less duplicates.
+    String rootId;
+    if (roots.isEmpty) {
+      rootId = generateId('root');
+      await db.messageDao.upsert(
+        Message(
+          id: rootId,
+          role: MessageRole.root,
+          assistantId: topic.assistantId,
+          topicId: topic.id,
+          createdAt: messages.isEmpty
+              ? topic.createdAt
+              : messages.first.createdAt,
+          status: MessageStatus.success,
+        ),
+      );
+    } else {
+      rootId = roots.first.id;
+      for (final extra in roots.skip(1)) {
+        await db.messageDao.deleteById(extra.id);
+      }
+    }
+
+    // Re-attach any straggler with a NULL parent (recompute the whole topic so
+    // siblings/orphans stay consistent; deterministic, stable for linear data).
+    if (messages.any((m) => m.parentId == null)) {
+      final tree = buildMessageTree(messages);
+      for (final m in messages) {
+        final placement = tree[m.id]!;
+        final parentId = placement.parentId ?? rootId;
+        if (m.parentId != parentId ||
+            m.siblingsGroupId != placement.siblingsGroupId) {
+          await db.messageDao.upsert(
+            m.copyWith(
+              parentId: parentId,
+              siblingsGroupId: placement.siblingsGroupId,
+            ),
+          );
+        }
+      }
+      if (topic.activeNodeId == null && messages.isNotEmpty) {
+        await db.topicDao.upsert(
+          topic.copyWith(activeNodeId: findActiveNodeId(messages)),
+        );
+      }
+    }
+  }
+}
+
 Future<void> _backfillTopic(AppDatabase db, Topic topic) async {
   // Idempotency: already migrated (has a virtual root) → nothing to do.
   if (await db.messageDao.getRootByTopicId(topic.id) != null) return;

@@ -83,7 +83,21 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.open() : super(_openConnection());
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
+
+  // SQLite can't ALTER a table-level CHECK/FK onto an existing table, but a
+  // partial UNIQUE index CAN be created on one. This enforces the single-root
+  // invariant (at most one role='root' row per topic) at the storage layer.
+  //
+  // It is scoped to `role='root'` rather than `parent_id IS NULL`: unlike
+  // Cherry (whose CHECK makes null-parent ⇔ root), our content messages can
+  // legitimately carry a null parentId — flat rows pre-backfill and, crucially,
+  // old backups restored straight via the DAO — so a `parent_id IS NULL` index
+  // would wrongly reject the second such row. `role='root'` constrains exactly
+  // the roots and nothing else.
+  static const String _rootUniqueIndexSql =
+      'CREATE UNIQUE INDEX IF NOT EXISTS message_topic_root_uniq '
+      "ON message_rows (topic_id) WHERE role = 'root'";
 
   // v1 → v2 adds the model-provider store ([ProviderRows]); v2 → v3 adds the
   // sidebar group store ([GroupRows]); v3 → v4 adds the key/value preferences
@@ -103,9 +117,17 @@ class AppDatabase extends _$AppDatabase {
   // path attaches new messages to the tree, a freshly-sent message would still
   // have parentId=null and collide with the (also-null-parent) root under that
   // index.
+  // v8 → v9 (PR-5 follow-up): repairs the tree (single root + re-attach any
+  // legacy NULL-parent content messages) then creates the single-root partial
+  // unique index. Repair-then-constrain is the standard recipe for adding a
+  // constraint to an existing table without a 12-step rebuild.
   @override
   MigrationStrategy get migration => MigrationStrategy(
-    onCreate: (m) => m.createAll(),
+    onCreate: (m) async {
+      await m.createAll();
+      // @TableIndex can't express a partial (WHERE) unique index, so add it here.
+      await customStatement(_rootUniqueIndexSql);
+    },
     onUpgrade: (m, from, to) async {
       if (from < 2) {
         await m.createTable(providerRows);
@@ -137,6 +159,11 @@ class AppDatabase extends _$AppDatabase {
         // 回填存量数据为树形：建虚拟根 + parentId/siblingsGroupId + activeNodeId。
         // 非破坏性（不删旧字段）、幂等（已有根的话题跳过），失败可由回退代码恢复。
         await backfillMessageTree(this);
+      }
+      if (from < 9) {
+        // 先修复数据（单根 + 重挂 NULL-parent 残留），再建单根偏唯一索引。
+        await repairMessageTree(this);
+        await customStatement(_rootUniqueIndexSql);
       }
     },
   );

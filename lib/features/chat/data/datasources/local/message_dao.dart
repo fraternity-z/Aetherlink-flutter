@@ -60,6 +60,17 @@ class MessageDao extends DatabaseAccessor<AppDatabase> with _$MessageDaoMixin {
     return row?.data;
   }
 
+  /// All virtual-root rows of a topic (normally 0 or 1). Used by the repair
+  /// migration, which must tolerate — and de-duplicate — a stray second root.
+  Future<List<Message>> getRootsByTopicId(String topicId) async {
+    final rows =
+        await (select(messageRows)..where(
+              (t) => t.topicId.equals(topicId) & t.role.equals('root'),
+            ))
+            .get();
+    return rows.map((row) => row.data).toList();
+  }
+
   Future<List<Message>> getByAssistantId(String assistantId) async {
     final rows = await (select(
       messageRows,
