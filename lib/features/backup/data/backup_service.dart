@@ -449,6 +449,40 @@ class BackupService {
       }
     }
 
+    // --- sidebarSettings (compound JSON blob) ---
+    // The web sidebar 设置 tab fields are spread across the redux `settings`
+    // slice (full backup), the `userSettings` blob (selective backup) and the
+    // localStorage `appSettings` object. Merge them (lower priority first) and
+    // map onto Flutter's `SidebarSettings`, the only place these settings are
+    // actually read.
+    final sidebarSource = <String, dynamic>{};
+    void mergeSidebarSource(dynamic src) {
+      if (src is Map<String, dynamic>) sidebarSource.addAll(src);
+    }
+
+    mergeSidebarSource(rawSettings);
+    if (rawLocalStorage is Map<String, dynamic>) {
+      final appSettings = rawLocalStorage['appSettings'];
+      if (appSettings is String) {
+        try {
+          mergeSidebarSource(jsonDecode(appSettings));
+        } catch (_) {
+          // Ignore malformed appSettings; the rest of the restore continues.
+        }
+      } else {
+        mergeSidebarSource(appSettings);
+      }
+    }
+    mergeSidebarSource(rawUserSettings);
+
+    final sidebarJson = _mapSidebarSettings(sidebarSource);
+    if (sidebarJson.isNotEmpty) {
+      settingsJson.add({
+        'key': 'sidebarSettings',
+        'value': jsonEncode(sidebarJson),
+      });
+    }
+
     return _RawBackupData(
       topics: topicsJson,
       messages: messagesJson,
@@ -579,6 +613,9 @@ class BackupService {
     final behaviorJson = <String, dynamic>{};
     if (settings['sendWithEnter'] != null) {
       behaviorJson['sendWithEnter'] = settings['sendWithEnter'];
+    }
+    if (settings['enableNotifications'] != null) {
+      behaviorJson['enableNotifications'] = settings['enableNotifications'];
     }
     if (settings['mobileInputMethodEnterAsNewline'] != null) {
       behaviorJson['mobileInputMethodEnterAsNewline'] =
@@ -730,6 +767,77 @@ class BackupService {
         'value': jsonEncode(settings['systemPromptVariables']),
       });
     }
+  }
+
+  /// Maps a merged web settings map onto Flutter's `SidebarSettings` JSON.
+  ///
+  /// The web spreads the 设置 tab fields across the redux `settings` slice, the
+  /// selective `userSettings` blob and localStorage `appSettings`, and the
+  /// selective export renames some of them (and inverts one). This accepts both
+  /// the canonical slice names and the selective aliases, coercing types so the
+  /// resulting blob round-trips through `SidebarSettings.fromJson`.
+  static Map<String, dynamic> _mapSidebarSettings(Map<String, dynamic> s) {
+    final out = <String, dynamic>{};
+
+    void boolKey(String flutterKey, List<String> webKeys) {
+      for (final k in webKeys) {
+        final v = s[k];
+        if (v is bool) {
+          out[flutterKey] = v;
+          return;
+        }
+      }
+    }
+
+    void intKey(String flutterKey, List<String> webKeys) {
+      for (final k in webKeys) {
+        final v = s[k];
+        if (v is num) {
+          out[flutterKey] = v.toInt();
+          return;
+        }
+      }
+    }
+
+    boolKey('showMessageDivider', ['showMessageDivider']);
+    boolKey('copyableCodeBlocks', ['copyableCodeBlocks']);
+    boolKey('renderUserInputAsMarkdown', [
+      'renderUserInputAsMarkdown',
+      'renderInputMessageAsMarkdown',
+    ]);
+    boolKey('autoScrollToBottom', ['autoScrollToBottom']);
+    boolKey('pasteLongTextAsFile', ['pasteLongTextAsFile']);
+    intKey('pasteLongTextThreshold', ['pasteLongTextThreshold']);
+    boolKey('codeShowLineNumbers', ['codeShowLineNumbers']);
+    boolKey('codeCollapsible', ['codeCollapsible']);
+    boolKey('codeWrappable', ['codeWrappable', 'codeWrapping']);
+    boolKey('mermaidEnabled', ['mermaidEnabled']);
+    boolKey('mathEnableSingleDollar', ['mathEnableSingleDollar']);
+    intKey('contextWindowSize', ['contextWindowSize']);
+    intKey('contextCount', ['contextCount']);
+    intKey('maxOutputTokens', ['maxOutputTokens']);
+    boolKey('enableMaxOutputTokens', ['enableMaxOutputTokens']);
+
+    // messageStyle is a required enum on the Flutter side — only forward known
+    // values so an unexpected string can't throw in fromJson.
+    final messageStyle = s['messageStyle'];
+    if (messageStyle == 'plain' || messageStyle == 'bubble') {
+      out['messageStyle'] = messageStyle;
+    }
+
+    // codeDefaultCollapsed: the slice stores it directly; the selective export
+    // renames it to the inverted `codeCollapsibleDefaultOpen`.
+    final codeDefaultCollapsed = s['codeDefaultCollapsed'];
+    if (codeDefaultCollapsed is bool) {
+      out['codeDefaultCollapsed'] = codeDefaultCollapsed;
+    } else {
+      final defaultOpen = s['codeCollapsibleDefaultOpen'];
+      if (defaultOpen is bool) {
+        out['codeDefaultCollapsed'] = !defaultOpen;
+      }
+    }
+
+    return out;
   }
 
   /// Adds a scalar setting to [settingsJson] if non-null.
