@@ -88,7 +88,7 @@ class ChatTopBar extends ConsumerWidget implements PreferredSizeWidget {
 
     // The original header is light and flat: `bg-paper` fill, `elevation 0` and
     // a 1px bottom divider (`baseStyles.appBar`). All colors are theme tokens.
-    final isDiy = settings.positions.isNotEmpty;
+    final isDiy = settings.positions.isNotEmpty || settings.groups.isNotEmpty;
 
     if (isDiy) {
       return AppBar(
@@ -130,6 +130,28 @@ class ChatTopBar extends ConsumerWidget implements PreferredSizeWidget {
                           child: child,
                         ),
                       ),
+                  for (final group in settings.groups)
+                    Positioned(
+                      left: group.x / 100 * w,
+                      top: group.y / 100 * h,
+                      child: FractionalTranslation(
+                        translation: const Offset(-0.5, -0.5),
+                        child: _GroupButton(
+                          group: group,
+                          buildChild: (component) => _buildComponent(
+                            component,
+                            context: context,
+                            ref: ref,
+                            theme: theme,
+                            settings: settings,
+                            topicName: topic?.name,
+                            current: current,
+                            hasModels: hasModels,
+                            comboName: comboName,
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               );
             },
@@ -381,6 +403,95 @@ class _ToolbarIconButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return IconButton(icon: icon, tooltip: tooltip, onPressed: onPressed);
+  }
+}
+
+/// A 聚合按钮: a single toolbar icon that pops up a sheet of its
+/// [TopToolbarGroup.children]. Each child is built through the same
+/// [_buildComponent] the toolbar uses (passed in via [buildChild]), so its
+/// behavior is identical whether it sits inline on the bar or inside a group —
+/// the group only changes *where* it lives, never *what it does*.
+class _GroupButton extends StatelessWidget {
+  const _GroupButton({required this.group, required this.buildChild});
+
+  final TopToolbarGroup group;
+  final Widget? Function(TopToolbarComponent) buildChild;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return _ToolbarIconButton(
+      icon: topToolbarGroupIcon(group.icon, color: theme.colorScheme.onSurface),
+      tooltip: group.label,
+      onPressed: group.children.isEmpty
+          ? null
+          : () => _openSheet(context),
+    );
+  }
+
+  Future<void> _openSheet(BuildContext context) {
+    return showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        final theme = Theme.of(context);
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              16,
+              0,
+              16,
+              16 + MediaQuery.paddingOf(context).bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Text(
+                    group.label,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 12,
+                  children: [
+                    for (final component in group.children)
+                      if (buildChild(component) case final Widget child)
+                        SizedBox(
+                          width: 72,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              child,
+                              const SizedBox(height: 2),
+                              Text(
+                                topToolbarComponentName(component),
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 }
 

@@ -59,6 +59,47 @@ abstract class TopToolbarComponentPosition with _$TopToolbarComponentPosition {
       _$TopToolbarComponentPositionFromJson(json);
 }
 
+/// The glyph a [TopToolbarGroup] (聚合按钮) renders with — a small curated set the
+/// group editor offers, so a user can tell their aggregate buttons apart.
+enum TopToolbarGroupIcon {
+  menu('menu'),
+  grid('grid'),
+  layers('layers'),
+  more('more'),
+  wrench('wrench'),
+  star('star');
+
+  const TopToolbarGroupIcon(this.id);
+
+  final String id;
+
+  static TopToolbarGroupIcon fromId(String? id) {
+    for (final icon in TopToolbarGroupIcon.values) {
+      if (icon.id == id) return icon;
+    }
+    return TopToolbarGroupIcon.more;
+  }
+}
+
+/// An "聚合按钮" placed on the DIY canvas: a single toolbar button that, when
+/// tapped, pops up the [children] components. Unlike a [TopToolbarComponent]
+/// (placed at most once), a layout may hold **many** groups, so each carries a
+/// stable [id]. [children] is an **ordered** list the group editor reorders.
+@freezed
+abstract class TopToolbarGroup with _$TopToolbarGroup {
+  const factory TopToolbarGroup({
+    required String id,
+    required double x,
+    required double y,
+    @Default('聚合') String label,
+    @Default(TopToolbarGroupIcon.more) TopToolbarGroupIcon icon,
+    @Default(<TopToolbarComponent>[]) List<TopToolbarComponent> children,
+  }) = _TopToolbarGroup;
+
+  factory TopToolbarGroup.fromJson(Map<String, dynamic> json) =>
+      _$TopToolbarGroupFromJson(json);
+}
+
 /// The top-toolbar DIY configuration the appearance 顶部工具栏设置 sub-page edits:
 /// the freely-placed component [positions] plus the [modelSelectorDisplayStyle].
 ///
@@ -71,6 +112,7 @@ abstract class TopToolbarSettings with _$TopToolbarSettings {
     @Default([]) List<TopToolbarComponentPosition> positions,
     @Default(ModelSelectorDisplayStyle.icon)
     ModelSelectorDisplayStyle modelSelectorDisplayStyle,
+    @Default(<TopToolbarGroup>[]) List<TopToolbarGroup> groups,
   }) = _TopToolbarSettings;
 
   factory TopToolbarSettings.fromJson(Map<String, dynamic> json) =>
