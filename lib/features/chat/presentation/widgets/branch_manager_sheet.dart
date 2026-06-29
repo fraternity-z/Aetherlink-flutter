@@ -4,6 +4,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:aetherlink_flutter/features/chat/application/chat_controller.dart';
 import 'package:aetherlink_flutter/features/chat/application/chat_providers.dart';
+import 'package:aetherlink_flutter/features/chat/application/sidebar_controllers.dart';
 import 'package:aetherlink_flutter/features/chat/domain/entities/message_block.dart';
 import 'package:aetherlink_flutter/features/chat/presentation/widgets/flow/branch_flow_canvas.dart';
 import 'package:aetherlink_flutter/features/chat/presentation/widgets/flow/branch_flow_graph.dart';
@@ -86,6 +87,49 @@ class _BranchManagerSheetState extends ConsumerState<_BranchManagerSheet> {
     if (mounted) Navigator.of(context).maybePop();
   }
 
+  /// Long-press a node → a small action menu. Mirrors Cherry's node context
+  /// menu: 「复制为新对话」clones the root-to-node path into a new topic (the same
+  /// createBranch / 另存为新话题 the message menu uses), so users can clone from
+  /// the canvas too. 「切到此分支」repeats the tap action for discoverability.
+  Future<void> _onNodeLongPress(BranchFlowNode node) async {
+    final action = await showModalBottomSheet<_NodeAction>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(LucideIcons.copyPlus),
+              title: const Text('复制为新对话'),
+              subtitle: const Text('把到此节点为止的路径克隆成一个新话题'),
+              onTap: () => Navigator.of(ctx).pop(_NodeAction.clone),
+            ),
+            if (!node.isActive)
+              ListTile(
+                leading: const Icon(LucideIcons.gitBranch),
+                title: const Text('切到此分支'),
+                onTap: () => Navigator.of(ctx).pop(_NodeAction.switchBranch),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (action == null) return;
+    switch (action) {
+      case _NodeAction.clone:
+        final created = await ref
+            .read(topicsProvider.notifier)
+            .createBranch(node.message.id);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(created == null ? '创建失败' : '已复制为新对话')),
+        );
+        Navigator.of(context).maybePop();
+      case _NodeAction.switchBranch:
+        await _onNodeTap(node);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -119,6 +163,7 @@ class _BranchManagerSheetState extends ConsumerState<_BranchManagerSheet> {
                               layout: layout,
                               previews: previews,
                               onNodeTap: _onNodeTap,
+                              onNodeLongPress: _onNodeLongPress,
                             ),
                 ),
               ],
@@ -159,3 +204,6 @@ class _BranchManagerSheetState extends ConsumerState<_BranchManagerSheet> {
     );
   }
 }
+
+/// Actions offered by a node's long-press menu in the branch canvas.
+enum _NodeAction { clone, switchBranch }
