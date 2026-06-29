@@ -11,8 +11,13 @@ import 'package:aetherlink_flutter/features/settings/presentation/widgets/font_p
 import 'package:aetherlink_flutter/features/settings/presentation/widgets/model_settings_widgets.dart';
 import 'package:aetherlink_flutter/shared/widgets/app_select_field.dart';
 
-/// The "外观设置" second-level page (hub "外观" → this page), a 1:1 reproduction
-/// of the layout of the original `src/pages/Settings/AppearanceSettings.tsx`.
+/// The "外观设置" second-level page (hub "外观" → this page), originally a 1:1
+/// reproduction of the original `src/pages/Settings/AppearanceSettings.tsx`.
+///
+/// 有意偏离原版（紧凑化重构）：原本有 3 个 tab（主题字体 / 界面定制 / 开发者工具），
+/// 现合并为 2 个——「界面定制 / 开发」tab 上半是界面定制卡、下半是开发者工具卡。
+/// 界面定制行与开发者工具行都改为紧凑版（头像/内边距/字号收紧，标题与简介各占一行、
+/// 超出省略），故这两块不再严格对齐原版尺寸；其余区块仍沿用原版度量。
 ///
 /// The page mirrors the original's exact metrics (font sizes, card radius,
 /// paddings, spacing, colors). The 主题 dropdown is fully wired — it drives the
@@ -44,7 +49,7 @@ class AppearanceSettingsPage extends ConsumerStatefulWidget {
 class _AppearanceSettingsPageState extends ConsumerState<AppearanceSettingsPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController = TabController(
-    length: 3,
+    length: 2,
     vsync: this,
   )..addListener(_onTabChanged);
 
@@ -64,7 +69,7 @@ class _AppearanceSettingsPageState extends ConsumerState<AppearanceSettingsPage>
 
   void _onSwipeEnd() {
     if (_swipeDx.abs() <= 60) return;
-    final next = (_tabController.index + (_swipeDx < 0 ? 1 : -1)).clamp(0, 2);
+    final next = (_tabController.index + (_swipeDx < 0 ? 1 : -1)).clamp(0, 1);
     if (next != _tabController.index) _tabController.animateTo(next);
   }
 
@@ -154,8 +159,15 @@ class _AppearanceSettingsPageState extends ConsumerState<AppearanceSettingsPage>
                       ),
                     ],
                   ),
-                  const _TabList(children: [_CustomizationCard()]),
-                  const _TabList(children: [_DeveloperToolsCard()]),
+                  // 界面定制 + 开发者工具 合并为一个 tab：上卡为界面定制，下卡为
+                  // 开发者工具，两卡之间留 12px。
+                  const _TabList(
+                    children: [
+                      _CustomizationCard(),
+                      SizedBox(height: 12),
+                      _DeveloperToolsCard(),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -197,8 +209,7 @@ class _TabBarHeader extends StatelessWidget {
 
   static const List<(IconData, String)> _tabs = [
     (LucideIcons.palette, '主题字体'),
-    (LucideIcons.layout, '界面定制'),
-    (LucideIcons.terminal, '开发者工具'),
+    (LucideIcons.layout, '界面定制 / 开发'),
   ];
 
   @override
@@ -947,13 +958,14 @@ class _CustomizationRow extends StatelessWidget {
   }
 
   Widget _content(ThemeData theme) {
+    // 紧凑版：头像 40→34、内边距收紧，标题/简介各占一行（超出省略号）。
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
       child: Row(
         children: [
           Container(
-            width: 40,
-            height: 40,
+            width: 34,
+            height: 34,
             alignment: Alignment.center,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
@@ -966,9 +978,9 @@ class _CustomizationRow extends StatelessWidget {
                 ),
               ],
             ),
-            child: Icon(item.icon, size: 20, color: item.accent),
+            child: Icon(item.icon, size: 18, color: item.accent),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -976,17 +988,23 @@ class _CustomizationRow extends StatelessWidget {
               children: [
                 Text(
                   item.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodyLarge?.copyWith(
-                    fontSize: 16,
+                    fontSize: 14.5,
+                    height: 1.2,
                     fontWeight: FontWeight.w600,
                     color: theme.colorScheme.onSurface,
                   ),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 1),
                 Text(
                   item.description,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodyMedium?.copyWith(
-                    fontSize: 14,
+                    fontSize: 12.5,
+                    height: 1.2,
                     color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ),
@@ -996,7 +1014,7 @@ class _CustomizationRow extends StatelessWidget {
           const SizedBox(width: 8),
           Icon(
             LucideIcons.chevronRight,
-            size: 20,
+            size: 18,
             color: theme.colorScheme.onSurfaceVariant,
           ),
         ],
@@ -1020,6 +1038,8 @@ class _DeveloperToolsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 紧凑版：去掉原版 p:3 大内边距与 32px 分隔，改成与界面定制一致的行列表
+    // （细分隔线 + 行内 H16/V7 内边距），每行标题/简介各一行。
     return const _AppearanceCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1027,17 +1047,9 @@ class _DeveloperToolsCard extends StatelessWidget {
         children: [
           _CardHeader(title: _title, description: _description),
           Divider(height: 1, thickness: 1),
-          Padding(
-            padding: EdgeInsets.all(24), // original `Box p:3`
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _DevToolRow(title: _perfTitle, description: _perfDesc),
-                Divider(height: 32), // original divider `my: 2` (16 + 16)
-                _DevToolRow(title: _floatTitle, description: _floatDesc),
-              ],
-            ),
-          ),
+          _DevToolRow(title: _perfTitle, description: _perfDesc),
+          Divider(height: 1, thickness: 1),
+          _DevToolRow(title: _floatTitle, description: _floatDesc),
         ],
       ),
     );
@@ -1056,42 +1068,45 @@ class _DevToolRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                title,
-                // body1 with the original `fontSize: 0.9rem` on mobile (14.4px).
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  fontSize: 14.4,
-                  fontWeight: FontWeight.w500,
-                  color: theme.colorScheme.onSurface,
+    // 紧凑版：标题/简介各一行（超出省略号），开关垂直居中。
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    fontSize: 14.5,
+                    height: 1.2,
+                    fontWeight: FontWeight.w500,
+                    color: theme.colorScheme.onSurface,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4), // original `mb: 0.5`
-              Text(
-                description,
-                // body2 with the original `fontSize: 0.8rem` (12.8px), lh 1.5.
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  fontSize: 12.8,
-                  height: 1.5,
-                  color: theme.colorScheme.onSurfaceVariant,
+                const SizedBox(height: 1),
+                Text(
+                  description,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontSize: 12.5,
+                    height: 1.2,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        const SizedBox(width: 16), // original `gap: 2`
-        const Padding(
-          padding: EdgeInsets.only(top: 4), // original right box `pt: 0.5`
-          child: CustomSwitch(value: false),
-        ),
-      ],
+          const SizedBox(width: 12),
+          const CustomSwitch(value: false),
+        ],
+      ),
     );
   }
 }
