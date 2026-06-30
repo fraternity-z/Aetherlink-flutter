@@ -128,7 +128,7 @@ class _FilterBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
       child: Column(
         children: [
           ValueListenableBuilder<ConsoleFilter>(
@@ -141,7 +141,7 @@ class _FilterBar extends StatelessWidget {
                 children: [
                   Expanded(
                     child: SizedBox(
-                      height: 38,
+                      height: 34,
                       child: TextField(
                         controller: searchCtrl,
                         style: theme.textTheme.bodyMedium,
@@ -195,7 +195,7 @@ class _FilterBar extends StatelessWidget {
               );
             },
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           ValueListenableBuilder<ConsoleFilter>(
             valueListenable: store.filter,
             builder: (context, filter, _) {
@@ -414,7 +414,7 @@ class _LogRowState extends State<_LogRow> {
     return InkWell(
       onTap: hasStack ? () => setState(() => _expanded = !_expanded) : null,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
         decoration: BoxDecoration(
           border: Border(
             left: BorderSide(color: color, width: 3),

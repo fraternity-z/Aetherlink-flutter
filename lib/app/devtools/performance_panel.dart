@@ -133,14 +133,14 @@ class _PerformanceViewState extends ConsumerState<_PerformanceView> {
         // and jank rates stay current without a separate timer.
         final snap = _monitor.snapshot();
         return ListView(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+          padding: const EdgeInsets.fromLTRB(10, 10, 10, 20),
           children: [
             _liveCard(context, m),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             _chartsCard(context),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             _summaryCard(context, snap),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             _actions(context),
           ],
         );
@@ -572,7 +572,7 @@ class _Card extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
@@ -583,11 +583,12 @@ class _Card extends StatelessWidget {
         children: [
           Text(
             title,
-            style: theme.textTheme.titleSmall?.copyWith(
+            style: theme.textTheme.labelLarge?.copyWith(
               fontWeight: FontWeight.w600,
+              color: theme.colorScheme.onSurfaceVariant,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           child,
         ],
       ),

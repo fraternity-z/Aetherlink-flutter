@@ -135,7 +135,7 @@ class _FilterBarState extends State<_FilterBar> {
     final theme = Theme.of(context);
     final store = widget.store;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
       child: Column(
         children: [
           ValueListenableBuilder<NetworkFilter>(
@@ -144,7 +144,7 @@ class _FilterBarState extends State<_FilterBar> {
               children: [
                 Expanded(
                   child: SizedBox(
-                    height: 38,
+                    height: 34,
                     child: TextField(
                       controller: widget.searchCtrl,
                       style: theme.textTheme.bodyMedium,
@@ -184,7 +184,7 @@ class _FilterBarState extends State<_FilterBar> {
               ],
             ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           ValueListenableBuilder<NetworkFilter>(
             valueListenable: store.filter,
             builder: (context, filter, _) {
@@ -331,7 +331,7 @@ class _RequestRow extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
         decoration: BoxDecoration(
           border: Border(
             left: BorderSide(color: statusColor, width: 3),
@@ -390,7 +390,7 @@ class _RequestRow extends StatelessWidget {
                 ],
               ],
             ),
-            const SizedBox(height: 5),
+            const SizedBox(height: 4),
             // Waterfall bar: width ∝ latency relative to the slowest visible row.
             ClipRRect(
               borderRadius: BorderRadius.circular(2),

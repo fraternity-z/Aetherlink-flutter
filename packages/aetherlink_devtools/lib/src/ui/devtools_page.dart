@@ -90,17 +90,59 @@ class _DevToolsPageState extends State<DevToolsPage>
           ),
         ],
         bottom: _panels.length > 1
-            ? TabBar(
-                controller: _tabs,
-                tabs: [
-                  for (final p in _panels)
-                    Tab(
-                      height: 44,
-                      icon: Icon(p.icon, size: 18),
-                      iconMargin: EdgeInsets.zero,
-                      child: Text(p.title),
+            ? PreferredSize(
+                preferredSize: const Size.fromHeight(56),
+                // Replicates the app's unified segmented tab style (rounded
+                // container + pill indicator + scrollable, content-sized tabs).
+                // Copied rather than imported because this package is
+                // dependency-free of the app's lib/.
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: theme.dividerColor),
+                      color: theme.colorScheme.surface,
                     ),
-                ],
+                    padding: const EdgeInsets.all(3),
+                    child: TabBar(
+                      controller: _tabs,
+                      isScrollable: true,
+                      tabAlignment: TabAlignment.start,
+                      indicator: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                      ),
+                      indicatorSize: TabBarIndicatorSize.tab,
+                      dividerHeight: 0,
+                      labelColor: theme.colorScheme.primary,
+                      unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
+                      labelStyle: theme.textTheme.labelLarge?.copyWith(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      unselectedLabelStyle: theme.textTheme.labelLarge?.copyWith(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      labelPadding: const EdgeInsets.symmetric(horizontal: 8),
+                      tabs: [
+                        for (final p in _panels)
+                          Tab(
+                            height: 34,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(p.icon, size: 15),
+                                const SizedBox(width: 5),
+                                Text(p.title),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
               )
             : null,
       ),
