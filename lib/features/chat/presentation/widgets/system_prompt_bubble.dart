@@ -1,5 +1,3 @@
-import 'dart:ui' as ui;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -104,43 +102,43 @@ class _SystemPromptBubbleState extends ConsumerState<SystemPromptBubble> {
                 ),
               ],
             ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: BackdropFilter(
-                filter: ui.ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  curve: Curves.ease,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: background,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: borderColor),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(LucideIcons.brain, size: 20, color: brainColor),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          text,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            height: 1.3,
-                            color: textColor,
-                          ),
-                        ),
+            // The background colours are already near-opaque (95%/98%), so the
+            // former real-time BackdropFilter blur (sigma 8) added a per-frame
+            // saveLayer + GPU blur for almost no visual gain — the dominant
+            // raster cost on this always-on bubble. Dropped along with the
+            // ClipRRect (the AnimatedContainer rounds its own corners), leaving
+            // a plain semi-transparent card.
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.ease,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 10,
+              ),
+              decoration: BoxDecoration(
+                color: background,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: borderColor),
+              ),
+              child: Row(
+                children: [
+                  Icon(LucideIcons.brain, size: 20, color: brainColor),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      text,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.3,
+                        color: textColor,
                       ),
-                      const SizedBox(width: 8),
-                      Icon(LucideIcons.squarePen, size: 18, color: editColor),
-                    ],
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 8),
+                  Icon(LucideIcons.squarePen, size: 18, color: editColor),
+                ],
               ),
             ),
           ),
