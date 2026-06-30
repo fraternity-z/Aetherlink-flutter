@@ -2,7 +2,7 @@
 
 > **版本**: v0.1
 > **日期**: 2026-06-30
-> **状态**: P0~P2 已完成（Console + 全局捕获 + 页面 + 关于页入口 + 悬浮按钮 + Network 网络面板 + Dio 收口），P3~P4 待开工
+> **状态**: P0~P3 已完成（Console + 全局捕获 + 页面 + 关于页入口 + 悬浮按钮 + Network 网络面板 + Dio 收口 + Performance 性能面板），P4 待开工
 > **目标**: 做一个「UI 对齐原版 Web、功能媲美 Chrome DevTools、整体比原版更强」的应用内开发者工具面板。
 
 ---
@@ -163,7 +163,7 @@
 | **P0** | 独立 package 骨架 + `ConsoleStore` + 全局错误/print 捕获(§4.1-A) + DevToolsPage(Console tab) | ✅ | 2026-06-30 |
 | **P1** | 可拖拽悬浮按钮 `DevToolsFloatingButton` + 设置开关接线(补占位项) | ✅ | 2026-06-30 |
 | **P2** | `DioDevInterceptor` + 统一 Dio 工厂(§4.2) + Network 面板(含 SSE 流式) | ✅ | 2026-06-30 |
-| **P3** | Performance tab（并入 aetherlink_perf） | ⬜ | - |
+| **P3** | Performance tab（并入 aetherlink_perf） | ✅ | 2026-06-30 |
 | **P4** | Storage / Device 面板 + AI 导出增强 + logger 门面(§4.1-B) | ⬜ | - |
 
 **推荐起步**：P0（零前置依赖，立刻可用，验证整体 UI 风格）。
@@ -185,6 +185,13 @@
 ## 8. 进度日志
 
 > 每完成一个阶段或重要节点，在此追加一条（日期 + 做了什么 + 关键文件 + 遗留问题）。最新在最上。
+
+### 2026-06-30 — P3 完成（Performance 性能面板，整合 aetherlink_perf）
+- 新增桥接面板 `lib/app/devtools/performance_panel.dart`（`PerformancePanel implements DevToolsPanel`）：读 `PerfMonitor.instance`，展示「实时」(FPS/Build/Raster/慢帧率/RSS/图片缓存 + 瓶颈 Chip，随 `live` ~2Hz 刷新) + 「窗口汇总」(build/raster/total 的 p50/p95/p99/max、慢帧/严重/冻结、内存趋势、设备、预热、规则诊断) + 「停止采集 / 复制诊断 JSON」。`exportAsText()` 接到页面级「复制」(导出 AI 诊断 JSON)。
+- **依赖归属**：面板放在主 App(组合根)而非 `aetherlink_devtools` 包内，桥接 `aetherlink_perf`，使 devtools 包保持零额外依赖；在 `main.dart` 用 `DevToolsRegistry.register(const PerformancePanel())` 注册(扩展点，紧跟 `DevToolsCapture.install()`)。Tab 顺序：控制台 / 网络 / 性能。
+- **采集器共享**：与「外观→开发者工具→显示性能监控」浮窗共用 `PerfMonitor` 单例。面板未在采集时给「开始采集」按钮(显式启动，不在 initState 自动开)；停止会停掉共享采集器(已在 UI 注明，浮窗随之归零，属共享单例取舍)。不在 dispose 自动 start/stop，避免与 `app.dart` 的 `perfMonitorController` 监听打架。
+- 验证：`flutter analyze lib/app/devtools/performance_panel.dart lib/main.dart` 零问题。
+- 遗留/下一步：实时曲线目前是数值卡片(非折线图，避免引图表依赖)；P4 起 Storage(Drift 表 + SharedPreferences) / Device 面板 + logger 门面(§4.1-B)。
 
 ### 2026-06-30 — P2 完成（Network 网络面板 + Dio 收口）
 - 包内新增 `src/network/`：

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:aetherlink_flutter/app/app.dart';
+import 'package:aetherlink_flutter/app/devtools/performance_panel.dart';
 import 'package:aetherlink_flutter/features/backup/data/backup_notification_service.dart';
 
 void main() async {
@@ -17,6 +18,10 @@ void main() async {
     () async {
       WidgetsFlutterBinding.ensureInitialized();
       DevToolsCapture.install();
+      // Register the Performance panel here (not inside aetherlink_devtools) so
+      // that package needn't depend on aetherlink_perf — this bridge panel reads
+      // the shared PerfMonitor. See docs/design/devtools-design.md (P3).
+      DevToolsRegistry.register(const PerformancePanel());
       // Draw behind the status / navigation bars so the themed overlay (set per
       // brightness in [AetherlinkApp]) replaces Android's opaque/contrast-scrimmed
       // system bars — no white mask behind the bottom navigation bar.
