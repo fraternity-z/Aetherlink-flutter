@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:aetherlink_flutter/app/router/app_router.dart';
+import 'package:aetherlink_flutter/features/settings/application/dev_tools_button_controller.dart';
 import 'package:aetherlink_flutter/features/settings/application/font_size_controller.dart';
 import 'package:aetherlink_flutter/features/settings/application/perf_monitor_controller.dart';
 import 'package:aetherlink_flutter/features/settings/application/theme_mode_controller.dart';
@@ -1027,11 +1028,10 @@ class _CustomizationRow extends StatelessWidget {
 }
 
 /// The "开发者工具" card: a tinted header over two title/description rows, each
-/// with a trailing [CustomSwitch]. 显示性能监控 is wired — it drives the
-/// [PerfMonitorController], mounting/removing the floating performance overlay
-/// (a global, app-wide draggable panel) live. The 悬浮按钮 row renders at full
-/// fidelity but stays non-interactive — that's the separate 开发者工具/日志
-/// feature, which doesn't exist on Flutter yet.
+/// with a trailing [CustomSwitch]. 显示性能监控 drives the [PerfMonitorController]
+/// (mounting the floating performance overlay live); 显示开发者工具悬浮按钮 drives
+/// the [DevToolsButtonController], mounting the draggable DevTools entry button
+/// that opens the in-app developer tools page (aetherlink_devtools, P1).
 class _DeveloperToolsCard extends StatelessWidget {
   const _DeveloperToolsCard();
 
@@ -1063,7 +1063,15 @@ class _DeveloperToolsCard extends StatelessWidget {
             ),
           ),
           const Divider(height: 1, thickness: 1),
-          const _DevToolRow(title: _floatTitle, description: _floatDesc),
+          Consumer(
+            builder: (context, ref, _) => _DevToolRow(
+              title: _floatTitle,
+              description: _floatDesc,
+              value: ref.watch(devToolsButtonControllerProvider),
+              onChanged: (v) =>
+                  ref.read(devToolsButtonControllerProvider.notifier).set(v),
+            ),
+          ),
         ],
       ),
     );
@@ -1071,10 +1079,10 @@ class _DeveloperToolsCard extends StatelessWidget {
 }
 
 /// One developer-tools row: a body1 title over a body2 description on the left,
-/// with a vertically-centered [CustomSwitch] on the right. The 显示性能监控 row
-/// passes [value]/[onChanged] to drive the [PerfMonitorController]; the 悬浮按钮
-/// row leaves [onChanged] null (that feature isn't built on Flutter yet), so its
-/// switch renders its [value] state but stays non-interactive.
+/// with a vertically-centered [CustomSwitch] on the right. Both rows pass
+/// [value]/[onChanged] to drive their controller ([PerfMonitorController] /
+/// [DevToolsButtonController]). A row left without [onChanged] renders its
+/// switch non-interactive (kept for future placeholder rows).
 class _DevToolRow extends StatelessWidget {
   const _DevToolRow({
     required this.title,

@@ -1,3 +1,4 @@
+import 'package:aetherlink_devtools/aetherlink_devtools.dart';
 import 'package:aetherlink_perf/aetherlink_perf.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,6 +11,7 @@ import 'package:aetherlink_flutter/app/theme/app_theme.dart';
 import 'package:aetherlink_flutter/shared/utils/haptics.dart';
 import 'package:aetherlink_flutter/features/settings/application/font_settings_controller.dart';
 import 'package:aetherlink_flutter/features/settings/application/font_size_controller.dart';
+import 'package:aetherlink_flutter/features/settings/application/dev_tools_button_controller.dart';
 import 'package:aetherlink_flutter/features/settings/application/perf_monitor_controller.dart';
 import 'package:aetherlink_flutter/features/settings/application/theme_mode_controller.dart';
 import 'package:aetherlink_flutter/features/settings/domain/app_theme_mode.dart';
@@ -69,6 +71,7 @@ class _AetherlinkAppState extends ConsumerState<AetherlinkApp> {
       next ? PerfMonitor.instance.start() : PerfMonitor.instance.stop();
     });
     final perfEnabled = ref.watch(perfMonitorControllerProvider);
+    final devToolsButtonEnabled = ref.watch(devToolsButtonControllerProvider);
 
     final spec = ref.watch(themeControllerProvider);
     final mode = ref.watch(themeModeControllerProvider);
@@ -147,9 +150,13 @@ class _AetherlinkAppState extends ConsumerState<AetherlinkApp> {
             data: MediaQuery.of(
               context,
             ).copyWith(textScaler: TextScaler.linear(textScale)),
-            child: PerfOverlayHost(
-              enabled: perfEnabled,
-              child: child ?? const SizedBox.shrink(),
+            child: DevToolsFloatingButtonHost(
+              enabled: devToolsButtonEnabled,
+              onPressed: () => router.push(AppRouter.devToolsPath),
+              child: PerfOverlayHost(
+                enabled: perfEnabled,
+                child: child ?? const SizedBox.shrink(),
+              ),
             ),
           ),
         );

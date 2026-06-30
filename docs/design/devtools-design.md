@@ -2,7 +2,7 @@
 
 > **版本**: v0.1
 > **日期**: 2026-06-30
-> **状态**: P0 已完成（Console + 全局捕获 + 页面骨架 + 入口已落地），P1~P4 待开工
+> **状态**: P0 + P1 已完成（Console + 全局捕获 + 页面 + 关于页入口 + 悬浮按钮），P2~P4 待开工
 > **目标**: 做一个「UI 对齐原版 Web、功能媲美 Chrome DevTools、整体比原版更强」的应用内开发者工具面板。
 
 ---
@@ -161,7 +161,7 @@
 | 阶段 | 内容 | 状态 | 完成日期 |
 |------|------|------|---------|
 | **P0** | 独立 package 骨架 + `ConsoleStore` + 全局错误/print 捕获(§4.1-A) + DevToolsPage(Console tab) | ✅ | 2026-06-30 |
-| **P1** | 可拖拽悬浮按钮 `DevToolsFloatingButton` + 设置开关接线(补占位项) | ⬜ | - |
+| **P1** | 可拖拽悬浮按钮 `DevToolsFloatingButton` + 设置开关接线(补占位项) | ✅ | 2026-06-30 |
 | **P2** | `DioDevInterceptor` + 统一 Dio 工厂(§4.2) + Network 面板(含 SSE 流式) | ⬜ | - |
 | **P3** | Performance tab（并入 aetherlink_perf） | ⬜ | - |
 | **P4** | Storage / Device 面板 + AI 导出增强 + logger 门面(§4.1-B) | ⬜ | - |
@@ -185,6 +185,13 @@
 ## 8. 进度日志
 
 > 每完成一个阶段或重要节点，在此追加一条（日期 + 做了什么 + 关键文件 + 遗留问题）。最新在最上。
+
+### 2026-06-30 — P1 完成（悬浮按钮 + 设置开关）
+- 包内新增 `src/ui/floating_button.dart`：`DevToolsFloatingButton`(48px 圆形 Terminal 蓝按钮，可拖拽，会话内记忆位置) + `DevToolsFloatingButtonHost`(仿 `PerfOverlayHost`，`enabled` 控制挂载，`onPressed` 由宿主注入以避开 router 依赖)。已在库入口导出。
+- 主 App：新增 `dev_tools_button_controller.dart`(仿 `perf_monitor_controller`，设置键 `showDevToolsFloatingButton`，Drift 持久化，`keepAlive`)；`app.dart` 在 `PerfOverlayHost` 外再包 `DevToolsFloatingButtonHost`，点击用 `router.push('/devtools')`；`appearance_settings_page.dart` 把原「显示开发者工具悬浮按钮」占位开关接上该 controller（并更新过时注释）。
+- 注意：改 riverpod 注解后必须跑**完整** `dart run build_runner build`，**不要用 `--build-filter`**（会删除其它 `.g.dart`，导致大量 Provider 未定义）。
+- 验证：`flutter analyze`(7 个目标)零问题。
+- 现状：性能监控浮窗、开发者工具悬浮按钮两个开关都在「外观→开发者工具」，悬浮按钮点按进入 Console。
 
 ### 2026-06-30 — P0 完成（Console + 骨架 + 入口）
 - 新增独立包 `packages/aetherlink_devtools`（零额外依赖，仿 `aetherlink_perf`）。代码地图：

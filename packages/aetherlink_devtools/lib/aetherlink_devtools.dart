@@ -31,3 +31,5 @@ export 'src/console/console_store.dart' show ConsoleStore, ConsoleFilter;
 export 'src/models/log_entry.dart' show LogEntry, LogLevel;
 export 'src/panel.dart' show DevToolsPanel, DevToolsRegistry;
 export 'src/ui/devtools_page.dart' show DevToolsPage;
+export 'src/ui/floating_button.dart'
+    show DevToolsFloatingButton, DevToolsFloatingButtonHost;
