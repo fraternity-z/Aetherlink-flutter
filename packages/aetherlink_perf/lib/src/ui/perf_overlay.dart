@@ -1,5 +1,3 @@
-import 'dart:ui' show ImageFilter;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 
@@ -59,30 +57,37 @@ class _PerfOverlayState extends State<PerfOverlay> {
       child: ValueListenableBuilder<PerfLiveMetrics>(
         valueListenable: PerfMonitor.instance.live,
         builder: (context, m, _) {
+          // NOTE: deliberately NOT using BackdropFilter here. On Android's
+          // Impeller backend (release builds) a BackdropFilter could leave the
+          // whole panel unpainted; a plain opaque card renders reliably.
           return Material(
             type: MaterialType.transparency,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(_expanded ? 12 : 10),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                child: Container(
-                  width: _expanded ? 264 : null,
-                  decoration: BoxDecoration(
-                    color: const Color(0xE6000000), // rgba(0,0,0,0.9)
-                    borderRadius: BorderRadius.circular(_expanded ? 12 : 10),
-                    border: Border.all(color: const Color(0x1AFFFFFF)),
-                    boxShadow: const [
-                      BoxShadow(color: Color(0x40000000), blurRadius: 12, offset: Offset(0, 4)),
-                    ],
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _titleBar(m),
-                      if (_expanded) _body(m),
-                    ],
-                  ),
+              child: Container(
+                width: _expanded ? 264 : null,
+                decoration: BoxDecoration(
+                  color: const Color(0xF2121212), // near-opaque dark card
+                  borderRadius: BorderRadius.circular(_expanded ? 12 : 10),
+                  border: Border.all(color: const Color(0x1AFFFFFF)),
+                  boxShadow: const [
+                    BoxShadow(color: Color(0x40000000), blurRadius: 12, offset: Offset(0, 4)),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  // Only stretch when expanded: expanded has a bounded `width`
+                  // (264) so stretch resolves fine. Collapsed has `width: null`,
+                  // and the Positioned (left/top only) hands down an UNBOUNDED
+                  // width — stretching to infinity throws/renders nothing, which
+                  // is why the collapsed panel used to vanish. `start` lets the
+                  // bar size to its content instead.
+                  crossAxisAlignment:
+                      _expanded ? CrossAxisAlignment.stretch : CrossAxisAlignment.start,
+                  children: [
+                    _titleBar(m),
+                    if (_expanded) _body(m),
+                  ],
                 ),
               ),
             ),
