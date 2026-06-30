@@ -120,19 +120,28 @@ class DioDevInterceptor extends Interceptor {
   /// Wraps [source] so each chunk is appended to the store entry as it flows to
   /// the real consumer, sealing the entry when the stream ends/errors.
   Stream<Uint8List> _captureStream(int id, Stream<Uint8List> source) {
+    // A stateful UTF-8 decoder so a multi-byte character split across two chunks
+    // (very common in SSE / LLM token streams) decodes correctly instead of
+    // emitting `�` at the seam. Decoding each chunk independently (the previous
+    // behaviour) corrupted the captured body for non-ASCII (e.g. Chinese) text.
+    final decoder = _Utf8StreamDecoder();
     return source.transform(
       StreamTransformer<Uint8List, Uint8List>.fromHandlers(
         handleData: (data, sink) {
-          _store.appendStream(id, data, utf8.decode(data, allowMalformed: true));
+          _store.appendStream(id, data, decoder.add(data));
           sink.add(data);
         },
         handleError: (error, stack, sink) {
+          final tail = decoder.close();
+          if (tail.isNotEmpty) _store.appendStream(id, const <int>[], tail);
           final cancelled =
               error is DioException && error.type == DioExceptionType.cancel;
           _store.endStream(id, cancelled: cancelled);
           sink.addError(error, stack);
         },
         handleDone: (sink) {
+          final tail = decoder.close();
+          if (tail.isNotEmpty) _store.appendStream(id, const <int>[], tail);
           _store.endStream(id);
           sink.close();
         },
@@ -180,4 +189,40 @@ class DioDevInterceptor extends Interceptor {
       return data.toString();
     }
   }
+}
+
+/// Wraps Dart's chunked UTF-8 decoder so bytes spanning chunk boundaries decode
+/// correctly: [add] returns only the text decodable from the bytes seen so far,
+/// holding back any incomplete trailing multi-byte sequence until the next chunk
+/// (or [close], which flushes the remainder with replacement chars).
+class _Utf8StreamDecoder {
+  final List<String> _out = <String>[];
+  late final Sink<List<int>> _sink = const Utf8Decoder(allowMalformed: true)
+      .startChunkedConversion(_CallbackSink<String>(_out.add));
+
+  String add(List<int> bytes) {
+    _out.clear();
+    _sink.add(bytes);
+    return _out.join();
+  }
+
+  String close() {
+    _out.clear();
+    _sink.close();
+    return _out.join();
+  }
+}
+
+/// A minimal [Sink] that forwards each added value to a callback (used to drain
+/// the chunked UTF-8 decoder's decoded strings).
+class _CallbackSink<T> implements Sink<T> {
+  _CallbackSink(this._onData);
+
+  final void Function(T) _onData;
+
+  @override
+  void add(T data) => _onData(data);
+
+  @override
+  void close() {}
 }

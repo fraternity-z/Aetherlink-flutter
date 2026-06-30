@@ -46,6 +46,21 @@ void main() {
       expect(store.byId(done)!.status, NetworkStatus.success);
     });
 
+    test('cancel is sticky: a late stream end/response cannot resurrect it', () {
+      // Stream cancelled mid-flight, then its done callback fires afterwards.
+      final s = store.start(method: 'POST', url: 'https://x/stream');
+      store.beginStream(s, statusCode: 200);
+      store.markCancelled(s);
+      store.endStream(s); // late, non-cancel done → must stay cancelled
+      expect(store.byId(s)!.status, NetworkStatus.cancelled);
+
+      // Non-stream request cancelled, then a late response lands.
+      final r = store.start(method: 'GET', url: 'https://x/slow');
+      store.markCancelled(r);
+      store.completeResponse(r, statusCode: 200, body: 'late');
+      expect(store.byId(r)!.status, NetworkStatus.cancelled);
+    });
+
     test('rings: never exceeds maxEntries, drops oldest first', () {
       for (var i = 0; i < NetworkStore.maxEntries + 10; i++) {
         store.start(method: 'GET', url: 'https://x/$i');

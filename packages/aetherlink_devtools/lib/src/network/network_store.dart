@@ -72,6 +72,8 @@ class NetworkStore {
   }) {
     final e = _byId[id];
     if (e == null) return;
+    // A late response must not resurrect an already-cancelled request.
+    if (e.status == NetworkStatus.cancelled) return;
     e
       ..statusCode = statusCode
       ..statusText = statusText
@@ -117,6 +119,9 @@ class NetworkStore {
   void endStream(int id, {bool cancelled = false}) {
     final e = _byId[id];
     if (e == null) return;
+    // A normal stream end must not overwrite a cancel that already landed (the
+    // CancelToken's whenCancel can fire before the stream's done callback).
+    if (!cancelled && e.status == NetworkStatus.cancelled) return;
     e
       ..endTime = DateTime.now()
       ..status = cancelled

@@ -204,7 +204,11 @@ class _FilterBarState extends State<_FilterBar> {
                             ? Set<String>.from(_methods)
                             : Set<String>.from(filter.methods);
                         if (!next.remove(m)) next.add(m);
-                        store.setFilter(filter.copyWith(methods: next));
+                        // A full set means "all" — store it as empty so newly
+                        // seen verbs (e.g. HEAD) aren't silently hidden.
+                        final normalized =
+                            next.length == _methods.length ? <String>{} : next;
+                        store.setFilter(filter.copyWith(methods: normalized));
                       },
                     ),
                 ],

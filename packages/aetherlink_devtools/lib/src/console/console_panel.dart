@@ -55,7 +55,10 @@ class _ConsoleViewState extends State<_ConsoleView> {
   }
 
   void _maybeAutoScroll() {
-    if (!_autoScroll || _groupByContext || !_scroll.hasClients) return;
+    if (!_autoScroll || _groupByContext) return;
+    // Schedule unconditionally: on the first build the ListView isn't attached
+    // yet (no clients), so we must still defer to the post-frame callback to
+    // land at the bottom when opening the console with existing history.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scroll.hasClients) {
         _scroll.jumpTo(_scroll.position.maxScrollExtent);

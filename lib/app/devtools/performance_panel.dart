@@ -126,25 +126,24 @@ class _PerformanceViewState extends ConsumerState<_PerformanceView> {
 
     if (!_monitor.isRunning) return _StoppedHint(onStart: _start);
 
-    return ValueListenableBuilder<PerfLiveMetrics>(
-      valueListenable: _monitor.live,
-      builder: (context, m, _) {
-        // The window summary is recomputed each live tick (~2 Hz) so percentiles
-        // and jank rates stay current without a separate timer.
-        final snap = _monitor.snapshot();
-        return ListView(
-          padding: const EdgeInsets.fromLTRB(10, 10, 10, 20),
-          children: [
-            _liveCard(context, m),
-            const SizedBox(height: 10),
-            _chartsCard(context),
-            const SizedBox(height: 10),
-            _summaryCard(context, snap),
-            const SizedBox(height: 10),
-            _actions(context),
-          ],
-        );
-      },
+    // `_onLive` already rebuilds us (via setState) on each ~2 Hz tick after
+    // pushing the sparkline samples, so read the live value directly instead of
+    // wrapping in a second ValueListenableBuilder that would rebuild twice.
+    final m = _monitor.live.value;
+    // The window summary is recomputed each live tick (~2 Hz) so percentiles and
+    // jank rates stay current without a separate timer.
+    final snap = _monitor.snapshot();
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 20),
+      children: [
+        _liveCard(context, m),
+        const SizedBox(height: 10),
+        _chartsCard(context),
+        const SizedBox(height: 10),
+        _summaryCard(context, snap),
+        const SizedBox(height: 10),
+        _actions(context),
+      ],
     );
   }
 
