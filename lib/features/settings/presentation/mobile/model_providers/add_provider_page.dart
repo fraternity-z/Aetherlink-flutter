@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:aetherlink_flutter/app/di/model_access.dart';
 import 'package:aetherlink_flutter/app/router/app_router.dart';
 import 'package:aetherlink_flutter/core/utils/id_generator.dart';
+import 'package:aetherlink_flutter/features/settings/presentation/mobile/model_providers/provider_config_utils.dart';
 import 'package:aetherlink_flutter/features/settings/presentation/widgets/model_settings_widgets.dart';
 import 'package:aetherlink_flutter/shared/domain/model_provider.dart';
 import 'package:aetherlink_flutter/shared/widgets/app_select_field.dart';
@@ -56,6 +57,9 @@ class _AddProviderPageState extends ConsumerState<AddProviderPage> {
     final type = _selectedType;
     if (!_canSubmit || type == null) return;
     final id = generateId('provider');
+    // Pre-fill the base URL from the picked type so the detail page's URL field
+    // isn't blank for well-known vendors (azure/google/custom have no default).
+    final baseUrl = defaultBaseUrlForType(type.value);
     final provider = ModelProvider(
       id: id,
       name: _name.trim(),
@@ -63,6 +67,7 @@ class _AddProviderPageState extends ConsumerState<AddProviderPage> {
       color: _defaultColor,
       isEnabled: true,
       providerType: type.value,
+      baseUrl: baseUrl.isEmpty ? null : baseUrl,
     );
     await ref.read(modelStoreProvider.notifier).saveProvider(provider);
     if (!mounted) return;

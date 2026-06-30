@@ -26,6 +26,39 @@ const List<(String, String)> providerTypeOptions = [
 const String _volcesEndpoint = 'volces.com/api/v3';
 const String _openaiResponseType = 'openai-response';
 
+/// The default API base URL for a freshly-added provider of [providerType], so
+/// 添加提供商 can pre-fill the detail page's URL field instead of leaving it
+/// blank. Hosts mirror the seed providers in `defaultModelProviders()` and
+/// Cherry Studio's `SYSTEM_PROVIDERS_CONFIG`. Types without a fixed public host
+/// (`azure-openai`, `google`, `custom`, …) return `''` so the field stays empty.
+String defaultBaseUrlForType(String? providerType) {
+  switch (providerType) {
+    case 'openai':
+    case 'openai-aisdk':
+      return 'https://api.openai.com/v1';
+    case 'gemini':
+      return 'https://generativelanguage.googleapis.com/v1beta';
+    case 'anthropic':
+      return 'https://api.anthropic.com/v1';
+    case 'grok':
+      return 'https://api.x.ai/v1';
+    case 'deepseek':
+      return 'https://api.deepseek.com';
+    case 'zhipu':
+      return 'https://open.bigmodel.cn/api/paas/v4/';
+    case 'siliconflow':
+      return 'https://api.siliconflow.cn';
+    case 'volcengine':
+      return 'https://ark.cn-beijing.volces.com/api/v3';
+    case 'minimax':
+      return 'https://api.minimaxi.com/v1';
+    case 'dashscope':
+      return 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+    default:
+      return '';
+  }
+}
+
 /// Whether [providerType] is treated as an OpenAI-compatible provider for the
 /// URL preview (everything except `anthropic` / `gemini`). Mirrors
 /// `isOpenAIProvider`.
