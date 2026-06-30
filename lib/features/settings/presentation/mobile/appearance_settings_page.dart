@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import 'package:aetherlink_flutter/app/router/app_router.dart';
 import 'package:aetherlink_flutter/features/settings/application/font_size_controller.dart';
+import 'package:aetherlink_flutter/features/settings/application/perf_monitor_controller.dart';
 import 'package:aetherlink_flutter/features/settings/application/theme_mode_controller.dart';
 import 'package:aetherlink_flutter/features/settings/domain/app_theme_mode.dart';
 import 'package:aetherlink_flutter/features/settings/presentation/widgets/font_picker.dart';
@@ -26,11 +27,13 @@ import 'package:aetherlink_flutter/shared/widgets/app_select_field.dart';
 /// destinations are not built yet, so the "界面定制" rows render greyed and carry
 /// no navigation (置灰). The 全局字体大小 slider is also wired — it drives the
 /// app's [FontSizeController], so dragging it rescales every text style live
-/// (matching the original theme's `fontScale = fontSize / 16`). The remaining
-/// controls (语言 / 全局字体 / 添加本地字体 / 开发者工具 switches / import + share)
-/// render at full visual fidelity but are non-interactive, since their backing
-/// features (i18n / custom-font infra / a perf monitor / appearance-config
-/// import-export) don't exist on Flutter yet.
+/// (matching the original theme's `fontScale = fontSize / 16`). 显示性能监控 is
+/// also wired — it drives the [PerfMonitorController], mounting the floating
+/// performance overlay live. The remaining controls (语言 / 全局字体 / 添加本地字体
+/// / 开发者工具悬浮按钮 / import + share) render at full visual fidelity but are
+/// non-interactive, since their backing features (i18n / custom-font infra /
+/// the devtools page / appearance-config import-export) don't exist on Flutter
+/// yet.
 ///
 /// To match the original pixel-for-pixel, the per-action avatar brand hues and
 /// the slider's `#9333EA → #754AB4` gradient are taken verbatim from the
@@ -1024,15 +1027,18 @@ class _CustomizationRow extends StatelessWidget {
 }
 
 /// The "开发者工具" card: a tinted header over two title/description rows, each
-/// with a trailing [CustomSwitch]. The switches render off and non-interactive —
-/// the perf monitor / devtools floating button don't exist on Flutter yet.
+/// with a trailing [CustomSwitch]. 显示性能监控 is wired — it drives the
+/// [PerfMonitorController], mounting/removing the floating performance overlay
+/// (a global, app-wide draggable panel) live. The 悬浮按钮 row renders at full
+/// fidelity but stays non-interactive — that's the separate 开发者工具/日志
+/// feature, which doesn't exist on Flutter yet.
 class _DeveloperToolsCard extends StatelessWidget {
   const _DeveloperToolsCard();
 
   static const String _title = '开发者工具';
   static const String _description = '用于调试和性能监控的开发者工具设置';
   static const String _perfTitle = '显示性能监控';
-  static const String _perfDesc = '在聊天界面显示实时性能监控面板，包括FPS、滚动事件、渲染时间和内存使用情况';
+  static const String _perfDesc = '在界面显示可拖拽的实时性能面板：分线程帧时间(Build/Raster)、掉帧率、内存与瓶颈诊断，可一键导出报告给 AI';
   static const String _floatTitle = '显示开发者工具悬浮按钮';
   static const String _floatDesc = '在聊天界面显示一个悬浮按钮，点击可快速进入开发者工具页面';
 
@@ -1040,16 +1046,24 @@ class _DeveloperToolsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     // 紧凑版：去掉原版 p:3 大内边距与 32px 分隔，改成与界面定制一致的行列表
     // （细分隔线 + 行内 H16/V7 内边距），每行标题/简介各一行。
-    return const _AppearanceCard(
+    return _AppearanceCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          _CardHeader(title: _title, description: _description),
-          Divider(height: 1, thickness: 1),
-          _DevToolRow(title: _perfTitle, description: _perfDesc),
-          Divider(height: 1, thickness: 1),
-          _DevToolRow(title: _floatTitle, description: _floatDesc),
+          const _CardHeader(title: _title, description: _description),
+          const Divider(height: 1, thickness: 1),
+          Consumer(
+            builder: (context, ref, _) => _DevToolRow(
+              title: _perfTitle,
+              description: _perfDesc,
+              value: ref.watch(perfMonitorControllerProvider),
+              onChanged: (v) =>
+                  ref.read(perfMonitorControllerProvider.notifier).set(v),
+            ),
+          ),
+          const Divider(height: 1, thickness: 1),
+          const _DevToolRow(title: _floatTitle, description: _floatDesc),
         ],
       ),
     );
@@ -1057,12 +1071,22 @@ class _DeveloperToolsCard extends StatelessWidget {
 }
 
 /// One developer-tools row: a body1 title over a body2 description on the left,
-/// with a top-aligned [CustomSwitch] on the right (off, non-interactive).
+/// with a vertically-centered [CustomSwitch] on the right. The 显示性能监控 row
+/// passes [value]/[onChanged] to drive the [PerfMonitorController]; the 悬浮按钮
+/// row leaves [onChanged] null (that feature isn't built on Flutter yet), so its
+/// switch renders its [value] state but stays non-interactive.
 class _DevToolRow extends StatelessWidget {
-  const _DevToolRow({required this.title, required this.description});
+  const _DevToolRow({
+    required this.title,
+    required this.description,
+    this.value = false,
+    this.onChanged,
+  });
 
   final String title;
   final String description;
+  final bool value;
+  final ValueChanged<bool>? onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -1104,7 +1128,7 @@ class _DevToolRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
-          const CustomSwitch(value: false),
+          CustomSwitch(value: value, onChanged: onChanged),
         ],
       ),
     );

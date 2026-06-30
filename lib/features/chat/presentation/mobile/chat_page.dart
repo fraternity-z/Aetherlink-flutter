@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:aetherlink_perf/aetherlink_perf.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -85,6 +86,13 @@ class ChatPage extends ConsumerWidget {
     );
     final isSelecting = ref.watch(
       messageSelectionProvider.select((s) => s.isSelecting),
+    );
+
+    // Tag the performance monitor with the streaming state so jank during a
+    // streaming response is attributed correctly. No-op while the monitor is off.
+    ref.listen(
+      chatControllerProvider.select((s) => s.value?.isStreaming ?? false),
+      (_, streaming) => PerfMonitor.instance.setStreaming(streaming),
     );
 
     // The sidebar is hosted by [SidebarHost] (not `Scaffold.drawer`) so its
@@ -801,10 +809,23 @@ class _MessageListViewState extends ConsumerState<_MessageListView> {
         (s) => s.messageStyle == MessageStyle.plain,
       ),
     );
-    return ListViewObserver(
-      controller: _observerController,
-      child: ListView.builder(
-        controller: _scrollController,
+    // Report the visible message count and live scroll state to the performance
+    // monitor, so scroll jank can be attributed to "/chat scrolling". Both are
+    // no-ops while the monitor is stopped.
+    PerfMonitor.instance.setMessages(rows.length);
+    return NotificationListener<ScrollNotification>(
+      onNotification: (n) {
+        if (n is ScrollStartNotification) {
+          PerfMonitor.instance.setScrolling(true);
+        } else if (n is ScrollEndNotification) {
+          PerfMonitor.instance.setScrolling(false);
+        }
+        return false;
+      },
+      child: ListViewObserver(
+        controller: _observerController,
+        child: ListView.builder(
+          controller: _scrollController,
         padding: EdgeInsets.fromLTRB(0, 8, 0, 8 + widget.bottomReserve),
         itemCount: rows.length + headerCount,
         itemBuilder: (context, index) {
@@ -857,6 +878,7 @@ class _MessageListViewState extends ConsumerState<_MessageListView> {
             ],
           );
         },
+        ),
       ),
     );
   }

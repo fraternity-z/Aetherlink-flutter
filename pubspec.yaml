@@ -79,6 +79,10 @@ dependencies:
   # Only LocalSafBackend (under lib/features/workspace/) is allowed to import this.
   aetherlink_saf:
     path: packages/aetherlink_saf
+  # In-app performance monitor (外观设置→开发者工具→显示性能监控). Pure-Dart,
+  # zero extra deps; per-thread frame timing + AI-friendly JSON export.
+  aetherlink_perf:
+    path: packages/aetherlink_perf
   scrollview_observer: ^1.27.0
   # Voice feature: TTS + ASR
   flutter_tts:

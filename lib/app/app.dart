@@ -1,3 +1,4 @@
+import 'package:aetherlink_perf/aetherlink_perf.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,6 +10,7 @@ import 'package:aetherlink_flutter/app/theme/app_theme.dart';
 import 'package:aetherlink_flutter/shared/utils/haptics.dart';
 import 'package:aetherlink_flutter/features/settings/application/font_settings_controller.dart';
 import 'package:aetherlink_flutter/features/settings/application/font_size_controller.dart';
+import 'package:aetherlink_flutter/features/settings/application/perf_monitor_controller.dart';
 import 'package:aetherlink_flutter/features/settings/application/theme_mode_controller.dart';
 import 'package:aetherlink_flutter/features/settings/domain/app_theme_mode.dart';
 import 'package:aetherlink_flutter/features/theming/application/theme_controller.dart';
@@ -61,6 +63,13 @@ class _AetherlinkAppState extends ConsumerState<AetherlinkApp> {
       Haptics.instance.updateSettings(next.hapticFeedback);
     });
 
+    // Start/stop the performance monitor as the 显示性能监控 flag flips (incl. the
+    // hydrated value resolving from storage). Both calls are idempotent.
+    ref.listen(perfMonitorControllerProvider, (_, next) {
+      next ? PerfMonitor.instance.start() : PerfMonitor.instance.stop();
+    });
+    final perfEnabled = ref.watch(perfMonitorControllerProvider);
+
     final spec = ref.watch(themeControllerProvider);
     final mode = ref.watch(themeModeControllerProvider);
     final fontSize = ref.watch(fontSizeControllerProvider);
@@ -87,6 +96,14 @@ class _AetherlinkAppState extends ConsumerState<AetherlinkApp> {
       _router = AppRouter.create(
         startAtWelcome: onboarding.value ?? false,
       );
+      // Feed the active route to the performance monitor so jank events can be
+      // attributed to a screen (e.g. "/chat"). setRoute is a no-op while the
+      // monitor is stopped, so this is harmless when the overlay is off.
+      final provider = _router!.routeInformationProvider;
+      void report() =>
+          PerfMonitor.instance.setRoute(provider.value.uri.path);
+      provider.addListener(report);
+      report();
     }
     final router = _router;
     if (router == null) {
@@ -130,7 +147,10 @@ class _AetherlinkAppState extends ConsumerState<AetherlinkApp> {
             data: MediaQuery.of(
               context,
             ).copyWith(textScaler: TextScaler.linear(textScale)),
-            child: child ?? const SizedBox.shrink(),
+            child: PerfOverlayHost(
+              enabled: perfEnabled,
+              child: child ?? const SizedBox.shrink(),
+            ),
           ),
         );
       },
