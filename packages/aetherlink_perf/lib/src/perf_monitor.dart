@@ -71,7 +71,7 @@ class PerfMonitor {
     if (_running) return;
     _running = true;
     _refreshRate = _detectRefreshRate();
-    _frames.reset();
+    _frames.reset(budgetMs);
     _memory.reset();
     WidgetsBinding.instance.addTimingsCallback(_onTimings);
     _timer = Timer.periodic(const Duration(milliseconds: 500), (_) => _tick());
@@ -123,14 +123,14 @@ class PerfMonitor {
     if (!_running) return;
     _memory.sample();
     final latest = _frames.latest;
-    final agg = _frames.aggregate(budgetMs);
+    final agg = _frames.aggregate();
     _live.value = PerfLiveMetrics(
       fps: _frames.recentFps(),
       buildMs: latest?.build ?? 0,
       rasterMs: latest?.raster ?? 0,
       rssMb: _memory.lastRssMb,
       imageCacheMb: _memory.lastImageCacheMb,
-      jankRate: agg.jankRate,
+      jankRate: agg.slowPct,
       verdict: agg.raster.p95 >= agg.build.p95 ? Bottleneck.raster : Bottleneck.ui,
     );
   }
@@ -139,18 +139,26 @@ class PerfMonitor {
 
   /// Builds the aggregated snapshot over the retained window.
   PerfSnapshot snapshot() {
-    final agg = _frames.aggregate(budgetMs);
-    final jank = _frames.jankEvents(budgetMs);
+    final agg = _frames.aggregate();
+    final jank = _frames.jankEvents();
+    final warmup = _frames.warmup();
     final summary = PerfSummary(
-      fps: agg.fps,
       buildMs: agg.build,
       rasterMs: agg.raster,
       totalMs: agg.total,
-      jankRate: agg.jankRate,
+      slowFramePct: agg.slowPct,
+      severeFramePct: agg.severePct,
+      frozenFrames: agg.frozen,
       frameCount: agg.frameCount,
+      budgetMs: agg.budgetMs,
+      liveFps: _frames.recentFps(),
       memory: _memory.aggregate(),
     );
-    final diagnosis = _diagnoser.diagnose(summary: summary, jankEvents: jank);
+    final diagnosis = _diagnoser.diagnose(
+      summary: summary,
+      jankEvents: jank,
+      warmup: warmup,
+    );
     return PerfSnapshot(
       device: PerfDevice(
         os: _osString(),
@@ -161,6 +169,7 @@ class PerfMonitor {
       windowDurationMs:
           DateTime.now().difference(_frames.epoch).inMilliseconds,
       summary: summary,
+      warmup: warmup,
       jankEvents: jank,
       diagnosis: diagnosis,
     );

@@ -15,8 +15,11 @@ class MemoryCollector {
 
   static const int _capacity = 600; // ~5 min at one sample/0.5s
 
+  double _firstRssMb = 0;
   double _lastRssMb = 0;
   double _lastImageCacheMb = 0;
+  double _imageCacheMaxMb = 0;
+  int _lastImageCacheCount = 0;
   int _lastLiveImages = 0;
 
   double get lastRssMb => _lastRssMb;
@@ -25,8 +28,11 @@ class MemoryCollector {
 
   void reset() {
     _rssMb.clear();
+    _firstRssMb = 0;
     _lastRssMb = 0;
     _lastImageCacheMb = 0;
+    _imageCacheMaxMb = 0;
+    _lastImageCacheCount = 0;
     _lastLiveImages = 0;
   }
 
@@ -40,6 +46,7 @@ class MemoryCollector {
     }
     _lastRssMb = rss;
     if (rss > 0) {
+      if (_rssMb.isEmpty) _firstRssMb = rss;
       _rssMb.add(rss);
       if (_rssMb.length > _capacity) {
         _rssMb.removeRange(0, _rssMb.length - _capacity);
@@ -48,6 +55,8 @@ class MemoryCollector {
 
     final cache = PaintingBinding.instance.imageCache;
     _lastImageCacheMb = cache.currentSizeBytes / (1024 * 1024);
+    _imageCacheMaxMb = cache.maximumSizeBytes / (1024 * 1024);
+    _lastImageCacheCount = cache.currentSize;
     _lastLiveImages = cache.liveImageCount;
   }
 
@@ -56,7 +65,11 @@ class MemoryCollector {
       return MemoryStats(
         rssMbAvg: 0,
         rssMbPeak: 0,
+        rssMbStart: 0,
+        rssMbEnd: _lastRssMb,
         imageCacheMb: _lastImageCacheMb,
+        imageCacheMaxMb: _imageCacheMaxMb,
+        imageCacheCount: _lastImageCacheCount,
         liveImages: _lastLiveImages,
       );
     }
@@ -65,7 +78,11 @@ class MemoryCollector {
     return MemoryStats(
       rssMbAvg: sum / _rssMb.length,
       rssMbPeak: peak,
+      rssMbStart: _firstRssMb,
+      rssMbEnd: _rssMb.last,
       imageCacheMb: _lastImageCacheMb,
+      imageCacheMaxMb: _imageCacheMaxMb,
+      imageCacheCount: _lastImageCacheCount,
       liveImages: _lastLiveImages,
     );
   }

@@ -1,5 +1,6 @@
 import 'dart:ui' show FrameTiming;
 
+import 'histogram.dart';
 import 'models/perf_models.dart';
 
 /// One captured frame: the build (UI thread) / raster (GPU thread) split, the
@@ -21,122 +22,187 @@ class _FrameSample {
   final PerfContext context;
 }
 
-/// Subscribes to Flutter's frame timings and keeps a bounded ring buffer of
-/// per-frame samples, splitting each frame into its UI-thread (`buildDuration`)
-/// and raster-thread (`rasterDuration`) costs — the split that lets us tell a
-/// UI-bound jank from a GPU-bound one.
+/// The steady-state aggregate over the window (warm-up excluded).
+typedef FrameAggregate = ({
+  Stat build,
+  Stat raster,
+  Stat total,
+  int frameCount,
+  double slowPct,
+  double severePct,
+  int frozen,
+  double budgetMs,
+});
+
+/// Subscribes to Flutter's frame timings and keeps streaming statistics,
+/// splitting each frame into its UI-thread (`buildDuration`) and raster-thread
+/// (`rasterDuration`) costs — the split that tells a UI-bound jank from a
+/// GPU-bound one.
+///
+/// Design (professional-grade, continuous-run safe):
+/// - Distributions are accumulated into [Histogram]s, so percentiles are O(1)
+///   memory and need no per-read sort regardless of how long the monitor runs.
+/// - Frames in the first [warmupMs] after collection starts are treated as a
+///   one-time warm-up phase (first paint, route build, image/shader warm-up)
+///   and excluded from steady-state rates; they're summarised separately.
+/// - Jank is tiered (over budget / over 2× budget / over 700ms frozen) instead
+///   of a single rate, mirroring Firebase/Android-Vitals slow+frozen frames.
 class FrameCollector {
-  FrameCollector({this.capacity = 8000});
+  FrameCollector({
+    this.recentCapacity = 240,
+    this.slowCapacity = 240,
+    this.warmupMs = 1500,
+  });
 
-  /// Max retained frames (~60s at 120fps). Oldest are dropped.
-  final int capacity;
+  /// Frozen-frame threshold (ms). A frame this slow reads as a freeze to the
+  /// user; aligned with Firebase Performance's 700ms "frozen frame".
+  static const double frozenMs = 700;
 
-  final List<_FrameSample> _samples = <_FrameSample>[];
+  /// Retained recent frames, for [latest] and the count-based [recentFps].
+  final int recentCapacity;
+
+  /// Retained slow frames (over budget), for [jankEvents].
+  final int slowCapacity;
+
+  /// Frames within this many ms of the epoch are the warm-up phase.
+  final int warmupMs;
+
+  final List<_FrameSample> _recent = <_FrameSample>[];
+  final List<_FrameSample> _slow = <_FrameSample>[];
+
+  Histogram _build = Histogram();
+  Histogram _raster = Histogram();
+  Histogram _total = Histogram();
+
   DateTime _epoch = DateTime.now();
+  double _budgetMs = 1000 / 60;
 
-  /// Resets the buffer and the window epoch.
-  void reset() {
-    _samples.clear();
-    _epoch = DateTime.now();
-  }
+  int _steadyCount = 0;
+  int _slowCount = 0;
+  int _severeCount = 0;
+  int _frozenCount = 0;
+
+  int _warmupCount = 0;
+  int _warmupLastMs = 0;
+  double _warmupWorst = 0;
 
   DateTime get epoch => _epoch;
+  double get budgetMs => _budgetMs;
 
-  int get length => _samples.length;
+  /// Resets all state and arms the per-frame budget for the active display.
+  void reset(double budgetMs) {
+    _budgetMs = budgetMs <= 0 ? 1000 / 60 : budgetMs;
+    _recent.clear();
+    _slow.clear();
+    _build = Histogram();
+    _raster = Histogram();
+    _total = Histogram();
+    _epoch = DateTime.now();
+    _steadyCount = 0;
+    _slowCount = 0;
+    _severeCount = 0;
+    _frozenCount = 0;
+    _warmupCount = 0;
+    _warmupLastMs = 0;
+    _warmupWorst = 0;
+  }
 
   /// Most recent frame's build/raster/total in ms, or null if none yet.
   ({double build, double raster, double total})? get latest {
-    if (_samples.isEmpty) return null;
-    final s = _samples.last;
+    if (_recent.isEmpty) return null;
+    final s = _recent.last;
     return (build: s.buildMs, raster: s.rasterMs, total: s.totalMs);
   }
 
   /// Ingests a batch of [FrameTiming]s (the signature of
-  /// `WidgetsBinding.addTimingsCallback`). [context] is the app context to tag
-  /// these frames with (read once per batch — batches span a few frames).
+  /// `WidgetsBinding.addTimingsCallback`). [context] tags these frames.
   void addTimings(List<FrameTiming> timings, PerfContext context) {
     final now = DateTime.now().difference(_epoch).inMilliseconds;
     for (final t in timings) {
-      _samples.add(_FrameSample(
+      final build = _ms(t.buildDuration);
+      final raster = _ms(t.rasterDuration);
+      final total = _ms(t.totalSpan);
+      final s = _FrameSample(
         wallMs: now,
-        buildMs: _ms(t.buildDuration),
-        rasterMs: _ms(t.rasterDuration),
-        totalMs: _ms(t.totalSpan),
+        buildMs: build,
+        rasterMs: raster,
+        totalMs: total,
         context: context,
-      ));
-    }
-    if (_samples.length > capacity) {
-      _samples.removeRange(0, _samples.length - capacity);
+      );
+
+      _recent.add(s);
+      if (_recent.length > recentCapacity) {
+        _recent.removeRange(0, _recent.length - recentCapacity);
+      }
+
+      if (now < warmupMs) {
+        _warmupCount++;
+        _warmupLastMs = now;
+        if (total > _warmupWorst) _warmupWorst = total;
+      } else {
+        _steadyCount++;
+        _build.add(build);
+        _raster.add(raster);
+        _total.add(total);
+        if (total > _budgetMs) _slowCount++;
+        if (total > _budgetMs * 2) _severeCount++;
+        if (total > frozenMs) _frozenCount++;
+      }
+
+      // Keep slow frames (any phase) for the jank-event list with context.
+      if (total > _budgetMs) {
+        _slow.add(s);
+        if (_slow.length > slowCapacity) {
+          _slow.removeRange(0, _slow.length - slowCapacity);
+        }
+      }
     }
   }
 
   /// FPS estimated over roughly the last [seconds] of wall time from the frame
   /// count, falling back to instantaneous `1000/totalSpan` when too few frames.
+  /// This is a live gauge only — never a window summary.
   double recentFps([int seconds = 1]) {
-    if (_samples.isEmpty) return 0;
-    final cutoff = _samples.last.wallMs - seconds * 1000;
+    if (_recent.isEmpty) return 0;
+    final cutoff = _recent.last.wallMs - seconds * 1000;
     var count = 0;
-    var minMs = _samples.last.wallMs;
-    for (var i = _samples.length - 1; i >= 0; i--) {
-      if (_samples[i].wallMs < cutoff) break;
+    var minMs = _recent.last.wallMs;
+    for (var i = _recent.length - 1; i >= 0; i--) {
+      if (_recent[i].wallMs < cutoff) break;
       count++;
-      minMs = _samples[i].wallMs;
+      minMs = _recent[i].wallMs;
     }
-    final span = _samples.last.wallMs - minMs;
+    final span = _recent.last.wallMs - minMs;
     if (count < 2 || span <= 0) {
-      final last = _samples.last.totalMs;
+      final last = _recent.last.totalMs;
       return last <= 0 ? 0 : (1000 / last).clamp(0, 240).toDouble();
     }
     return (count - 1) * 1000 / span;
   }
 
-  /// Builds the aggregated summary stats over the whole retained window.
-  /// [budgetMs] is the per-frame budget (`1000 / refreshRate`).
-  ({
-    Stat fps,
-    Stat build,
-    Stat raster,
-    Stat total,
-    double jankRate,
-    int frameCount,
-  }) aggregate(double budgetMs) {
-    if (_samples.isEmpty) {
-      return (
-        fps: Stat.empty(),
-        build: Stat.empty(),
-        raster: Stat.empty(),
-        total: Stat.empty(),
-        jankRate: 0,
-        frameCount: 0,
+  /// Steady-state aggregate (warm-up excluded).
+  FrameAggregate aggregate() => (
+        build: _build.toStat(),
+        raster: _raster.toStat(),
+        total: _total.toStat(),
+        frameCount: _steadyCount,
+        slowPct: _steadyCount == 0 ? 0 : _slowCount / _steadyCount,
+        severePct: _steadyCount == 0 ? 0 : _severeCount / _steadyCount,
+        frozen: _frozenCount,
+        budgetMs: _budgetMs,
       );
-    }
-    final builds = <double>[];
-    final rasters = <double>[];
-    final totals = <double>[];
-    final fpsList = <double>[];
-    var jank = 0;
-    for (final s in _samples) {
-      builds.add(s.buildMs);
-      rasters.add(s.rasterMs);
-      totals.add(s.totalMs);
-      fpsList.add(s.totalMs <= 0 ? 0 : (1000 / s.totalMs).clamp(0, 240).toDouble());
-      if (s.totalMs > budgetMs) jank++;
-    }
-    return (
-      fps: _statOf(fpsList, lowerIsWorse: true),
-      build: _statOf(builds),
-      raster: _statOf(rasters),
-      total: _statOf(totals),
-      jankRate: jank / _samples.length,
-      frameCount: _samples.length,
-    );
-  }
 
-  /// The worst [limit] jank frames (total span over [budgetMs]), newest-biased,
+  /// The one-time warm-up phase summary.
+  WarmupStats warmup() => WarmupStats(
+        frameCount: _warmupCount,
+        durationMs: _warmupCount == 0 ? 0 : _warmupLastMs,
+        worstTotalMs: _warmupWorst,
+      );
+
+  /// The worst [limit] slow frames (total span over budget), newest-biased,
   /// each classified UI- vs raster-bound and tagged with its context.
-  List<JankEvent> jankEvents(double budgetMs, {int limit = 30}) {
-    final janks = _samples.where((s) => s.totalMs > budgetMs).toList()
-      ..sort((a, b) => b.totalMs.compareTo(a.totalMs));
+  List<JankEvent> jankEvents({int limit = 30}) {
+    final janks = [..._slow]..sort((a, b) => b.totalMs.compareTo(a.totalMs));
     final top = janks.take(limit).toList()
       ..sort((a, b) => a.wallMs.compareTo(b.wallMs));
     return top
@@ -152,25 +218,4 @@ class FrameCollector {
   }
 
   static double _ms(Duration d) => d.inMicroseconds / 1000.0;
-
-  static Stat _statOf(List<double> values, {bool lowerIsWorse = false}) {
-    if (values.isEmpty) return Stat.empty();
-    final sorted = [...values]..sort();
-    final n = sorted.length;
-    double pct(double p) {
-      // For FPS, "p95" should report the bad tail (low FPS), so invert.
-      final q = lowerIsWorse ? 1 - p : p;
-      final idx = ((n - 1) * q).round().clamp(0, n - 1);
-      return sorted[idx];
-    }
-
-    final sum = values.fold<double>(0, (a, b) => a + b);
-    return Stat(
-      avg: sum / n,
-      p50: pct(0.50),
-      p95: pct(0.95),
-      p99: pct(0.99),
-      max: lowerIsWorse ? sorted.first : sorted.last,
-    );
-  }
 }

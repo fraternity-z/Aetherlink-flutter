@@ -161,7 +161,7 @@ class _PerfOverlayState extends State<PerfOverlay> {
           _row('FPS', m.fps.toStringAsFixed(0), _fpsColor(m.fps)),
           _row('Build (UI)', '${m.buildMs.toStringAsFixed(1)}ms', _frameColor(m.buildMs, budget)),
           _row('Raster (GPU)', '${m.rasterMs.toStringAsFixed(1)}ms', _frameColor(m.rasterMs, budget)),
-          _row('掉帧率', '${(m.jankRate * 100).toStringAsFixed(1)}%', _jankColor(m.jankRate)),
+          _row('慢帧率(稳态)', '${(m.jankRate * 100).toStringAsFixed(1)}%', _jankColor(m.jankRate)),
           _row('内存 RSS', '${m.rssMb.toStringAsFixed(0)}MB', _memColor(m.rssMb)),
           _row('图片缓存', '${m.imageCacheMb.toStringAsFixed(0)}MB', _memColor(m.imageCacheMb * 2)),
           const SizedBox(height: 6),
